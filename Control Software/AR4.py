@@ -1,5 +1,5 @@
 ############################################################################
-## Version AR4 6.1 #########################################################
+## Version AR4 6.2.1 #########################################################
 ############################################################################
 """ AR4 - robot control software
     Copyright (c) 2024, Chris Annin
@@ -62,6 +62,8 @@
   VERSION 5.2 3/23/25 add auto calibrate for individual axis
   VERSION 6.0 6/12/25 add virtual robot
   VERSION 6.1 8/29/25 updated accel and decel, auto calibrate & microsteps
+  VERSION 6.2 9/12/25 changed bootstrap theme, xbox upgrade
+  VERSION 6.2.1 9/24/25 fixed slider position update
 '''
 ##########################################################################
 ##########################################################################
@@ -71,10 +73,12 @@
 from multiprocessing.resource_sharer import stop
 from os import execv
 from tkinter import *
-from tkinter.ttk import *
-from tkinter import ttk
+# Import ttkbootstrap widgets to replace ttk widgets
+import ttkbootstrap as ttk_bootstrap
+from ttkbootstrap import Style as BootstrapStyle
+from ttkbootstrap import *  # This makes ttkbootstrap widgets available globally
+from tkinter import ttk  # Keep for compatibility
 from tkinter import simpledialog
-from ttkthemes import ThemedStyle
 from tkinter import messagebox
 from PIL import Image, ImageTk
 from matplotlib import pyplot as plt
@@ -84,6 +88,7 @@ from functools import partial
 from vtkmodules.tk.vtkTkRenderWindowInteractor import vtkTkRenderWindowInteractor
 import vtkmodules.vtkInteractionStyle as vtkIS
 from queue import Queue
+import ctypes
 
 
 
@@ -120,7 +125,7 @@ cropping = False
 
 
 root = Tk()
-root.wm_title("AR4 Software Ver 6.1")
+root.wm_title("AR4 Software Ver 6.2.1")
 root.iconbitmap(r'AR.ico')
 root.resizable(width=False, height=False)
 root.geometry('1536x792+0+0')
@@ -232,6 +237,9 @@ liveJog = False
 global progRunning
 progRunning = False
 
+global sliderActive
+sliderActive = False
+
 offlineMode = False
 
 global setColor
@@ -253,6 +261,7 @@ rndSpeed = 0
 estopActive = False
 minSpeedDelay = 200  # µs
 speedViolation = "0"
+mainMode = 1
 
 live_jog_lock = threading.Lock()
 live_cartesian_lock = threading.Lock()
@@ -301,34 +310,34 @@ J9NegLim = 0
 ### DEFINE TABS ############################################################
 ############################################################################
 
-nb = tkinter.ttk.Notebook(root, width=1536, height=792)
+nb = ttk_bootstrap.Notebook(root, width=1536, height=792)
 nb.place(x=0, y=0)
 
-tab1 = tkinter.ttk.Frame(nb)
+tab1 = ttk_bootstrap.Frame(nb)
 nb.add(tab1, text=' Main Controls ')
 
-tab2 = tkinter.ttk.Frame(nb)
+tab2 = ttk_bootstrap.Frame(nb)
 nb.add(tab2, text='  Config Settings  ')
 
-tab3 = tkinter.ttk.Frame(nb)
+tab3 = ttk_bootstrap.Frame(nb)
 nb.add(tab3, text='   Kinematics    ')
 
-tab4 = tkinter.ttk.Frame(nb)
+tab4 = ttk_bootstrap.Frame(nb)
 nb.add(tab4, text=' Inputs Outputs ')
 
-tab5 = tkinter.ttk.Frame(nb)
+tab5 = ttk_bootstrap.Frame(nb)
 nb.add(tab5, text='   Registers    ')
 
-tab6 = tkinter.ttk.Frame(nb)
+tab6 = ttk_bootstrap.Frame(nb)
 nb.add(tab6, text='   Vision    ')
 
-tab7 = tkinter.ttk.Frame(nb)
+tab7 = ttk_bootstrap.Frame(nb)
 nb.add(tab7, text='    G-Code     ')
 
-tab8 = tkinter.ttk.Frame(nb)
+tab8 = ttk_bootstrap.Frame(nb)
 nb.add(tab8, text='      Log      ')
 
-tab9 = tkinter.ttk.Frame(nb)
+tab9 = ttk_bootstrap.Frame(nb)
 #nb.add(tab9, text='   Info    ')
 
 
@@ -499,6 +508,7 @@ def refresh_gui_from_joint_angles(joint_angles):
 #############################################################################################
 ### MOVE LOGIC FOR VIRTUAL ROBOT ############################################################
 #############################################################################################
+
 
 def start_driveMotorsJ_thread(*args):
     if drive_lock.locked():
@@ -1863,35 +1873,75 @@ def setCom2():
 def darkTheme():
   global curTheme
   curTheme = 0
-  style = ThemedStyle(root)
-  style.set_theme("black")
-  style = ttk.Style()
-  style.configure("Alarm.TLabel", foreground="IndianRed1", font = ('Arial','10','bold'))
-  style.configure("Warn.TLabel", foreground="orange", font = ('Arial','10','bold'))
-  style.configure("OK.TLabel", foreground="light green", font = ('Arial','10','bold'))
-  style.configure("Jointlim.TLabel", foreground="light blue", font = ('Arial','8'))
-  style.configure('AlarmBut.TButton', foreground ='IndianRed1')
-  style.configure('Frame1.TFrame', background='white')
-  style.configure("Offline.TButton", foreground="green", font = ('Arial','8','bold'))
+  # Use the existing style instance and switch theme
+  if hasattr(root, 'style'):
+    style = root.style
+    style.theme_use("darkly")
+  else:
+    style = BootstrapStyle(theme="darkly")
+    root.style = style
+  
+  # Configure custom styles for the darkly theme
+  style.configure("Alarm.TLabel", foreground="#dc3545", font = ('Arial','10','bold'))  # Bootstrap danger color
+  style.configure("Warn.TLabel", foreground="#fd7e14", font = ('Arial','10','bold'))   # Bootstrap warning color
+  style.configure("OK.TLabel", foreground="#198754", font = ('Arial','10','bold'))     # Bootstrap success color
+  style.configure("Jointlim.TLabel", foreground="#0dcaf0", font = ('Arial','8'))      # Bootstrap info color
+  style.configure('AlarmBut.TButton', foreground ='#dc3545')                          # Bootstrap danger color
+  style.configure('Frame1.TFrame', background='#ffffff')
+  style.configure("Offline.TButton", foreground="#198754", font = ('Arial','8','bold'))  # Bootstrap success color
   style.configure("Online.TButton")
+  # Configure Entry widgets for better alignment with buttons
+  style.configure("TEntry", 
+                  fieldbackground="#495057",  # Dark background for darkly theme
+                  borderwidth=1,
+                  insertcolor="#ffffff",      # White cursor
+                  padding=(1, 0, 1, 0))      # More aggressive padding reduction: left, top, right, bottom
+  
+  # Configure Button widgets for subtle size reduction
+  style.configure("TButton", 
+                  padding=(5, 3, 5, 3))     # Very subtle padding reduction: just slightly smaller than default
+  
+  # Configure OptionMenu widgets to match button proportions
+  style.configure("TMenubutton", 
+                  padding=(5, 3, 5, 3))     # Match button padding for proportional scaling
 
 
 def lightTheme():
   global curTheme
   curTheme = 1
-  style = ThemedStyle(root)
-  style.set_theme("keramik")
-  style = ttk.Style()
-  style.configure("Alarm.TLabel", foreground="red", font = ('Arial','10','bold'))
-  style.configure("Warn.TLabel", foreground="peru", font = ('Arial','10','bold'))
-  style.configure("OK.TLabel", foreground="green", font = ('Arial','10','bold'))
-  style.configure("Jointlim.TLabel", foreground="dark blue", font = ('Arial','8'))
-  style.configure('AlarmBut.TButton', foreground ='red')
-  style.configure('Frame1.TFrame', background='black')
-  style.configure("Offline.TButton", foreground="orange")
-  style.configure("Online.TButton", foreground="black")
-  style.configure("Offline.TButton", foreground="green", font = ('Arial','8','bold'))
+  # Use the existing style instance and switch theme
+  if hasattr(root, 'style'):
+    style = root.style
+    style.theme_use("flatly")  # Changed to sandstone theme
+  else:
+    style = BootstrapStyle(theme="flatly")  # Changed to sandstone theme
+    root.style = style
+  
+  # Configure custom styles for the light theme
+  style.configure("Alarm.TLabel", foreground="#dc3545", font = ('Arial','10','bold'))  # Bootstrap danger color
+  style.configure("Warn.TLabel", foreground="#fd7e14", font = ('Arial','10','bold'))   # Bootstrap warning color
+  style.configure("OK.TLabel", foreground="#198754", font = ('Arial','10','bold'))     # Bootstrap success color
+  style.configure("Jointlim.TLabel", foreground="#0d6efd", font = ('Arial','8'))      # Bootstrap primary color
+  style.configure('AlarmBut.TButton', foreground ='#dc3545')                          # Bootstrap danger color
+  style.configure('Frame1.TFrame', background='#000000')
+  style.configure("Offline.TButton", foreground="#fd7e14")                            # Bootstrap warning color
+  style.configure("Online.TButton", foreground="#000000")
+  style.configure("Offline.TButton", foreground="#198754", font = ('Arial','8','bold'))  # Bootstrap success color
   style.configure("Online.TButton")
+  # Configure Entry widgets for better alignment with buttons
+  style.configure("TEntry", 
+                  fieldbackground="#ffffff",  # White background for light theme
+                  borderwidth=1,
+                  insertcolor="#000000",      # Black cursor
+                  padding=(1, 0, 1, 0))      # More aggressive padding reduction: left, top, right, bottom
+  
+  # Configure Button widgets for subtle size reduction
+  style.configure("TButton", 
+                  padding=(5, 3, 5, 3))     # Very subtle padding reduction: just slightly smaller than default
+  
+  # Configure OptionMenu widgets to match button proportions
+  style.configure("TMenubutton", 
+                  padding=(5, 3, 5, 3))     # Match button padding for proportional scaling
 
 
 
@@ -1984,7 +2034,7 @@ def stepFwd():
         tab1.progView.itemconfig(row, {'fg': 'dodger blue'})
       tab1.progView.itemconfig(selRow, {'fg': 'blue2'})
       for row in range (selRow+1,last):
-        tab1.progView.itemconfig(row, {'fg': 'black'})
+        tab1.progView.itemconfig(row, {'fg': 'gray'})
       tab1.progView.selection_clear(0, END)
       selRow += 1
       tab1.progView.select_set(selRow)
@@ -2009,7 +2059,7 @@ def stepRev():
     selRow = tab1.progView.curselection()[0]
     last = tab1.progView.index('end')
     for row in range (0,selRow):
-      tab1.progView.itemconfig(row, {'fg': 'black'})
+      tab1.progView.itemconfig(row, {'fg': 'gray'})
     tab1.progView.itemconfig(selRow, {'fg': 'red'})
     for row in range (selRow+1,last):
       tab1.progView.itemconfig(row, {'fg': 'tomato2'})
@@ -3593,243 +3643,519 @@ def executeRow():
 ##############################################################################################################################################################
 ### BUTTON JOGGING DEFS ############################################################################################################## BUTTON JOGGING DEFS ###
 ##############################################################################################################################################################  
+
+##xbox  ######################################################################################################################################################
+
+
+
+# ---------- XINPUT (Xbox 360 / Xbox One) ----------
+for _dll in ("XInput1_4.dll", "XInput9_1_0.dll", "XInput1_3.dll"):
+    try:
+        _xinput = ctypes.WinDLL(_dll); break
+    except OSError:
+        _xinput = None
+if _xinput is None:
+    raise OSError("XInput DLL not found")
+
+class XINPUT_GAMEPAD(ctypes.Structure):
+    _fields_ = [
+        ("wButtons", ctypes.c_ushort),
+        ("bLeftTrigger", ctypes.c_ubyte),
+        ("bRightTrigger", ctypes.c_ubyte),
+        ("sThumbLX", ctypes.c_short),
+        ("sThumbLY", ctypes.c_short),
+        ("sThumbRX", ctypes.c_short),
+        ("sThumbRY", ctypes.c_short),
+    ]
+class XINPUT_STATE(ctypes.Structure):
+    _fields_ = [("dwPacketNumber", ctypes.c_uint), ("Gamepad", XINPUT_GAMEPAD)]
+XInputGetState = _xinput.XInputGetState
+XInputGetState.argtypes = [ctypes.c_uint, ctypes.POINTER(XINPUT_STATE)]
+XInputGetState.restype  = ctypes.c_uint
+
+# ---------- Buttons / DPAD ----------
+BTN_A = 0x1000
+BTN_B = 0x2000
+BTN_X = 0x4000
+BTN_Y = 0x8000
+BTN_START = 0x0010
+BTN_LB = 0x0100
+BTN_RB = 0x0200
+DPAD_UP    = 0x0001
+DPAD_DOWN  = 0x0002
+DPAD_LEFT  = 0x0004
+DPAD_RIGHT = 0x0008
+
+# ---------- Stick robustness ----------
+DZ_LX = 7849; DZ_LY = 7849
+DZ_RX = 8689 + 1500; DZ_RY = 8689 + 1500
+START_THR_L = 0.18; STOP_THR_L = 0.12
+START_THR_R = 0.22; STOP_THR_R = 0.10
+LPF_ALPHA_L = 0.30; LPF_ALPHA_R = 0.35
+
+def _norm_axis(v, dz):
+    if abs(v) < dz: return 0.0
+    n = v / 32767.0
+    return -1.0 if n < -1.0 else (1.0 if n > 1.0 else n)
+
+def _lbl(text, style="Warn.TLabel"):
+    try:
+        root.after(0, lambda: almStatusLab.config(text=text, style=style))
+        root.after(0, lambda: almStatusLab2.config(text=text, style=style))
+    except Exception:
+        pass
+
+# ---------- Mode state (A=Joint, B=Cartesian) ----------
+_mainMode = 1
+def _show_mode_banner():
+    try:
+        _lbl("JOINT MODE" if _mainMode == 1 else "CARTESIAN MODE", style="Warn.TLabel")
+    except Exception:
+        pass
+
+# ---------- Tk-thread GUI calls ----------
+def _tk_call(fn, *args):
+    if not callable(fn): return False
+    try:
+        root.after(0, (lambda f=fn, a=args: f(*a)))
+        return True
+    except Exception:
+        return False
+
+def _gui_stop():
+    if _tk_call(globals().get("StopJog"), None):
+        return
+    try:
+        send_serial_command("S\n")
+    except Exception:
+        pass
+
+def _gui_start_joint(code):
+    _tk_call(globals().get("LiveJointJog"), code)
+
+def _gui_start_cart(code):
+    _tk_call(globals().get("LiveCarJog"), code)
+
+def _gui_start_tool(code):
+    _tk_call(globals().get("LiveToolJog"), code)
+
+# ----- Teach (X button) -----
+def _teach_position():
+    _tk_call(globals().get("teachInsertBelSelected"))
+
+# ----- Servo gripper toggle (Y button) over ser2 -----
+_grip_closed = False  # False = open; first press closes (SV0P0)
+
+def _nano_send(cmd):
+    def worker():
+        try:
+            ser2.write(cmd.encode())
+            ser2.flushInput()
+            time.sleep(0.1)
+            ser2.read()
+        except Exception:
+            pass
+    threading.Thread(target=worker, daemon=True).start()
+
+def _toggle_servo_gripper():
+    global _grip_closed
+    if not _grip_closed:
+        _nano_send("SV0P0\n")   # close
+        _grip_closed = True
+    else:
+        _nano_send("SV0P50\n")  # open
+        _grip_closed = False
+
+# ----- Pneumatic gripper toggle (START) over ser2 -----
+_pneu_open = False  # False = closed
+
+def _toggle_pneu_gripper():
+    global _pneu_open
+    if not _pneu_open:
+        _nano_send("OFX8\n")   # OPEN
+        _pneu_open = True
+    else:
+        _nano_send("ONX8\n")   # CLOSE
+        _pneu_open = False
+
+# ----- Triggers adjust speedEntryField (smart stepping) -----
+def _bump_speed_smart(delta_hint):
+    def do():
+        try:
+            val = int(speedEntryField.get())
+        except Exception:
+            val = 25
+        if delta_hint < 0:
+            # Decrease: above 5 → -5; at/under 5 → -1 (to a floor of 1)
+            step = -5 if val > 5 else -1
+        else:
+            # Increase: below 5 → +1 up to 5; above 5 → +5
+            step = +1 if val < 5 else +5
+        newv = max(1, min(100, val + step))
+        speedEntryField.delete(0, 'end')
+        speedEntryField.insert(0, str(newv))
+    try:
+        root.after(0, do)
+    except Exception:
+        do()
+
+# ---------- Joint arbiter ----------
+_current = None
+_pending_start = None
+_last_input_time = 0.0
+SWITCH_DELAY_MS = 60
+WATCHDOG_MS     = 200
+
+def _lj_code(j, direction):  # J1- = 10, J1+ = 11; J2- = 20, J2+ = 21; ...
+    return j*10 + (1 if direction > 0 else 0)
+
+def _request_switch(new_active):
+    global _current, _pending_start
+    old = _current
+    if old == new_active:
+        return
+
+    def do_start_if_pending():
+        global _current, _pending_start
+        code = _pending_start; _pending_start = None
+        if code is not None:
+            _current = new_active
+            _gui_start_joint(code)
+
+    if old is not None:
+        _current = None
+        _pending_start = _lj_code(*new_active) if new_active else None
+        _gui_stop()
+        try: root.after(SWITCH_DELAY_MS, do_start_if_pending)
+        except Exception: do_start_if_pending()
+        return
+
+    if new_active is not None:
+        _current = new_active
+        _gui_start_joint(_lj_code(*new_active))
+
+# ---------- Cartesian arbiter ----------
+_cart_current = None
+_cart_pending = None
+
+def _cart_code(axis, d):
+    if axis == 'X':  return 10 if d < 0 else 11
+    if axis == 'Y':  return 20 if d < 0 else 21
+    if axis == 'Z':  return 30 if d < 0 else 31
+    if axis == 'Rx': return 40 if d < 0 else 41
+    if axis == 'Ry': return 50 if d < 0 else 51
+    if axis == 'Rz': return 60 if d < 0 else 61
+    return None
+
+def _request_switch_cart(new_active):
+    global _cart_current, _cart_pending
+    old = _cart_current
+    if old == new_active:
+        return
+
+    def do_start_if_pending():
+        global _cart_current, _cart_pending
+        item = _cart_pending; _cart_pending = None
+        if item is not None:
+            _cart_current = item
+            axis, d = item
+            code = _cart_code(axis, d)
+            if code is not None:
+                _gui_start_cart(code)
+
+    if old is not None:
+        _cart_current = None
+        _cart_pending = new_active
+        _gui_stop()
+        try: root.after(SWITCH_DELAY_MS, do_start_if_pending)
+        except Exception: do_start_if_pending()
+        return
+
+    if new_active is not None:
+        _cart_current = new_active
+        axis, d = new_active
+        code = _cart_code(axis, d)
+        if code is not None:
+            _gui_start_cart(code)
+
+# ---------- Tool (Tz) arbiter (for bumpers) ----------
+_tool_current = None
+_tool_pending = None
+
+def _tool_code(axis, d):
+    if axis == 'Tz': return 30 if d < 0 else 31   # per your LiveToolJog mapping
+    return None
+
+def _request_switch_tool(new_active):
+    global _tool_current, _tool_pending
+    old = _tool_current
+    if old == new_active:
+        return
+
+    def do_start_if_pending():
+        global _tool_current, _tool_pending
+        item = _tool_pending; _tool_pending = None
+        if item is not None:
+            _tool_current = item
+            axis, d = item
+            code = _tool_code(axis, d)
+            if code is not None:
+                _gui_start_tool(code)
+
+    if old is not None:
+        _tool_current = None
+        _tool_pending = new_active
+        _gui_stop()
+        try: root.after(SWITCH_DELAY_MS, do_start_if_pending)
+        except Exception: do_start_if_pending()
+        return
+
+    if new_active is not None:
+        _tool_current = new_active
+        axis, d = new_active
+        code = _tool_code(axis, d)
+        if code is not None:
+            _gui_start_tool(code)
+
+# ---------- Watchdog (covers all 3 arbiters) ----------
+def _watchdog_tick():
+    global _current, _pending_start, _cart_current, _cart_pending, _tool_current, _tool_pending, _last_input_time
+    try:
+        now = time.monotonic()
+        if (now - _last_input_time) * 1000.0 > WATCHDOG_MS:
+            if _current is not None or _cart_current is not None or _tool_current is not None:
+                _current = None; _pending_start = None
+                _cart_current = None; _cart_pending = None
+                _tool_current = None; _tool_pending = None
+                _gui_stop()
+    finally:
+        try: root.after(WATCHDOG_MS, _watchdog_tick)
+        except Exception: pass
+
+# ---------- Axis selection (one axis per stick) ----------
+_smooth = {'LX': 0, 'LY': 0, 'RX': 0, 'RY': 0}
+def _lp(prev, new, alpha): return int(prev + alpha * (new - prev))
+
+def _stick_to_axis(raw_x, raw_y, dz_x, dz_y, alpha, start_thr, stop_thr, tag):
+    """
+    Returns (axis, dir) with axis in {'X','Y',None}, dir in {-1,0,+1}
+    (One axis per stick; picks stronger if diagonal.)
+    """
+    if tag == 'L':
+        _smooth['LX'] = _lp(_smooth['LX'], raw_x, alpha)
+        _smooth['LY'] = _lp(_smooth['LY'], raw_y, alpha)
+        nx = _norm_axis(_smooth['LX'], dz_x); ny = _norm_axis(_smooth['LY'], dz_y)
+    else:
+        _smooth['RX'] = _lp(_smooth['RX'], raw_x, alpha)
+        _smooth['RY'] = _lp(_smooth['RY'], raw_y, alpha)
+        nx = _norm_axis(_smooth['RX'], dz_x); ny = _norm_axis(_smooth['RY'], dz_y)
+
+    ix = 1 if nx >= start_thr else (-1 if nx <= -start_thr else 0)
+    iy = 1 if ny >= start_thr else (-1 if ny <= -start_thr else 0)
+
+    if ix == 0 and iy == 0:
+        return None, 0
+    if ix != 0 and iy != 0:
+        return ('X', 1 if nx>0 else -1) if abs(nx) >= abs(ny) else ('Y', 1 if ny>0 else -1)
+    return ('X', ix) if ix != 0 else ('Y', iy)
+
+# --- Dominant-axis lock for CARTESIAN left stick (prevents X<->Y flip mid-hold)
+_cartL_lock = {'which': None, 'dir': 0}
+def _cart_left_locked(raw_lx, raw_ly):
+    global _smooth
+    _smooth['LX'] = int(_smooth['LX'] + LPF_ALPHA_L * (raw_lx - _smooth['LX']))
+    _smooth['LY'] = int(_smooth['LY'] + LPF_ALPHA_L * (raw_ly - _smooth['LY']))
+    nx = _norm_axis(_smooth['LX'], DZ_LX)
+    ny = _norm_axis(_smooth['LY'], DZ_LY)
+    ix =  1 if nx >= START_THR_L else (-1 if nx <= -START_THR_L else 0)
+    iy =  1 if ny >= START_THR_L else (-1 if ny <= -START_THR_L else 0)
+    lock = _cartL_lock
+    if lock['which'] == 'X':
+        if abs(nx) > STOP_THR_L:
+            lock['dir'] = 1 if nx > 0 else -1
+            return 'X', lock['dir']
+        else:
+            lock['which'] = None; lock['dir'] = 0
+    elif lock['which'] == 'Y':
+        if abs(ny) > STOP_THR_L:
+            lock['dir'] = 1 if ny > 0 else -1
+            return 'Y', lock['dir']
+        else:
+            lock['which'] = None; lock['dir'] = 0
+    if ix == 0 and iy == 0:
+        return None, 0
+    if ix != 0 and iy != 0:
+        if abs(nx) >= abs(ny):
+            lock['which'] = 'X'; lock['dir'] = 1 if nx > 0 else -1
+        else:
+            lock['which'] = 'Y'; lock['dir'] = 1 if ny > 0 else -1
+    elif ix != 0:
+        lock['which'] = 'X'; lock['dir'] = ix
+    else:
+        lock['which'] = 'Y'; lock['dir'] = iy
+    return lock['which'], lock['dir']
+
+# ---------- Controller plumbing ----------
+def _find_controller():
+    st = XINPUT_STATE()
+    for i in range(4):
+        if XInputGetState(i, ctypes.byref(st)) == 0:
+            return i
+    return None
+
+def _poll_loop():
+    global _mainMode, _last_input_time
+    idx = _find_controller()
+    if idx is None:
+        _lbl("No XInput controller detected"); return
+    _lbl(f"Xbox connected (slot {idx})")
+    try: root.after(WATCHDOG_MS, _watchdog_tick)
+    except Exception: pass
+
+    last_buttons = 0  # for edges X/Y/START/LB/RB
+    lt_down = False
+    rt_down = False
+    TRIG_THR = 30  # analog threshold for a 'press'
+
+    while True:
+        st = XINPUT_STATE()
+        if XInputGetState(idx, ctypes.byref(st)) != 0:
+            _request_switch(None); _request_switch_cart(None); _request_switch_tool(None)
+            _lbl("XBOX CONTROLLER NOT RESPONDING", style="Alarm.TLabel")
+            time.sleep(0.2)
+            idx = _find_controller()
+            if idx is not None: _lbl(f"Xbox reconnected (slot {idx})")
+            continue
+
+        gp = st.Gamepad
+        buttons = gp.wButtons
+
+        # --- Button edges: X (teach), Y (servo gripper), START (pneumatic gripper) ---
+        pressed = buttons & ~last_buttons
+        if pressed & BTN_X:
+            _teach_position()
+        if pressed & BTN_Y:
+            _toggle_servo_gripper()
+        if pressed & BTN_START:
+            _toggle_pneu_gripper()
+
+        # --- Triggers: smart speed (edge) ---
+        if gp.bLeftTrigger >= TRIG_THR and not lt_down:
+            lt_down = True
+            _bump_speed_smart(-1)
+        elif gp.bLeftTrigger < TRIG_THR and lt_down:
+            lt_down = False
+
+        if gp.bRightTrigger >= TRIG_THR and not rt_down:
+            rt_down = True
+            _bump_speed_smart(+1)
+        elif gp.bRightTrigger < TRIG_THR and rt_down:
+            rt_down = False
+
+        # --- Mode switching (A=Joint, B=Cartesian) ---
+        if buttons & BTN_A:
+            if _mainMode != 1:
+                _request_switch(None); _request_switch_cart(None); _request_switch_tool(None)
+                _mainMode = 1; _show_mode_banner()
+        elif buttons & BTN_B:
+            if _mainMode != 2:
+                _request_switch(None); _request_switch_cart(None); _request_switch_tool(None)
+                _mainMode = 2; _show_mode_banner()
+
+        # --- Tool bumpers (priority over sticks/dpad) ---
+        # LB => Tz−, RB => Tz+
+        intended_tool = None
+        if (buttons & BTN_LB) and not (buttons & BTN_RB):
+            intended_tool = ('Tz', -1)
+        elif (buttons & BTN_RB) and not (buttons & BTN_LB):
+            intended_tool = ('Tz', +1)
+        else:
+            intended_tool = None
+
+        if intended_tool is not None:
+            # tool jog takes priority: stop other modes first
+            _request_switch(None)
+            _request_switch_cart(None)
+            _request_switch_tool(intended_tool)
+        else:
+            _request_switch_tool(None)
+
+            # --- Movement based on mode (only if no tool jog active) ---
+            if _mainMode == 1:
+                # JOINT MODE (custom mapping)
+                axL, dirL = _stick_to_axis(gp.sThumbLX, gp.sThumbLY, DZ_LX, DZ_LY,
+                                           LPF_ALPHA_L, START_THR_L, STOP_THR_L, 'L')
+                axR, dirR = _stick_to_axis(gp.sThumbRX, gp.sThumbRY, DZ_RX, DZ_RY,
+                                           LPF_ALPHA_R, START_THR_R, STOP_THR_R, 'R')
+
+                # D-pad: J5 (Down=+1, Up=-1), J6 (Right=+1, Left=-1)
+                dJ5 = (+1 if (buttons & DPAD_DOWN) else -1 if (buttons & DPAD_UP) else 0)
+                dJ6 = (+1 if (buttons & DPAD_RIGHT) else -1 if (buttons & DPAD_LEFT) else 0)
+
+                intended = None
+                if dJ5 != 0:
+                    intended = (5, dJ5)
+                elif dJ6 != 0:
+                    intended = (6, dJ6)
+                elif axL is not None:
+                    intended = (1, -dirL) if axL == 'X' else (2, -dirL)
+                elif axR is not None:
+                    intended = (3, dirR) if axR == 'X' else (4, dirR)
+
+                _request_switch(intended)
+
+            else:
+                # CARTESIAN MODE (left-stick axis lock)
+                axL, dirL = _cart_left_locked(gp.sThumbLX, gp.sThumbLY)
+                axR, dirR = _stick_to_axis(gp.sThumbRX, gp.sThumbRY, DZ_RX, DZ_RY,
+                                           LPF_ALPHA_R, START_THR_R, STOP_THR_R, 'R')
+
+                # D-pad: Rx / Ry
+                dRx = (+1 if (buttons & DPAD_UP)    else -1 if (buttons & DPAD_DOWN) else 0)
+                dRy = (+1 if (buttons & DPAD_RIGHT) else -1 if (buttons & DPAD_LEFT) else 0)
+
+                intended_cart = None
+                if dRx != 0:
+                    intended_cart = ('Rx', dRx)
+                elif dRy != 0:
+                    intended_cart = ('Ry', dRy)
+                elif axL is not None:
+                    intended_cart = ('X', dirL) if axL == 'Y' else ('Y', -dirL)
+                elif axR is not None:
+                    intended_cart = ('Rz', dirR) if axR == 'X' else ('Z', dirR)
+
+                _request_switch_cart(intended_cart)
+
+        _last_input_time = time.monotonic()
+        last_buttons = buttons
+        time.sleep(0.008)  # ~120 Hz
+
+# ---------- Public entry ----------
+def start_xbox():
+    threading.Thread(target=_poll_loop, daemon=True).start()
+    _lbl("Xbox ON / polling…", style="Warn.TLabel")
+
+
+
+
+
  
 
-def xbox():
-  def threadxbox():
-    from inputs import get_gamepad
-    global xboxUse
-    jogMode = 1
-    if xboxUse == 0:
-      xboxUse = 1
-      mainMode = 1
-      jogMode = 1
-      grip = 0
-      almStatusLab.config(text='JOGGING JOINTS 1 & 2', style="Warn.TLabel")
-      almStatusLab2.config(text='JOGGING JOINTS 1 & 2', style="Warn.TLabel")
-      xbcStatusLab.config(text='Xbox ON', )
-      ChgDis(2)
-    else:
-      xboxUse = 0
-      almStatusLab.config(text='XBOX CONTROLLER OFF', style="Warn.TLabel")
-      almStatusLab2.config(text='XBOX CONTROLLER OFF', style="Warn.TLabel")
-      xbcStatusLab.config(text='Xbox OFF', )
-    while xboxUse == 1:
-      try:
-      #if (TRUE):
-        events = get_gamepad()
-        for event in events:
-          ##DISTANCE
-          if (event.code == 'ABS_RZ' and event.state >= 100):
-            ChgDis(0)
-          elif (event.code == 'ABS_Z' and event.state >= 100): 
-            ChgDis(1)
-          ##SPEED
-          elif (event.code == 'BTN_TR' and event.state == 1): 
-            ChgSpd(0)
-          elif (event.code == 'BTN_TL' and event.state == 1): 
-            ChgSpd(1)
-          ##JOINT MODE
-          elif (event.code == 'BTN_WEST' and event.state == 1): 
-            if mainMode != 1:
-              mainMode = 1
-              jogMode = 1
-              almStatusLab.config(text='JOGGING JOINTS 1 & 2', style="Warn.TLabel")
-              almStatusLab2.config(text='JOGGING JOINTS 1 & 2', style="Warn.TLabel")
-            else:                
-              jogMode +=1        
-            if jogMode == 2:
-              almStatusLab.config(text='JOGGING JOINTS 3 & 4', style="Warn.TLabel")
-              almStatusLab2.config(text='JOGGING JOINTS 3 & 4', style="Warn.TLabel")
-            elif jogMode == 3:
-              almStatusLab.config(text='JOGGING JOINTS 5 & 6', style="Warn.TLabel")
-              almStatusLab2.config(text='JOGGING JOINTS 5 & 6', style="Warn.TLabel")
-            elif jogMode == 4:
-              jogMode = 1
-              almStatusLab.config(text='JOGGING JOINTS 1 & 2', style="Warn.TLabel")
-              almStatusLab2.config(text='JOGGING JOINTS 1 & 2', style="Warn.TLabel")
-          ##JOINT JOG
-          elif (mainMode == 1 and event.code == 'ABS_HAT0X' and event.state == 1 and jogMode == 1): 
-            J1jogNeg(float(incrementEntryField.get()))    
-          elif (mainMode == 1 and event.code == 'ABS_HAT0X' and event.state == -1 and jogMode == 1): 
-            J1jogPos(float(incrementEntryField.get()))
-          elif (mainMode == 1 and event.code == 'ABS_HAT0Y' and event.state == -1 and jogMode == 1): 
-            J2jogNeg(float(incrementEntryField.get()))    
-          elif (mainMode == 1 and event.code == 'ABS_HAT0Y' and event.state == 1 and jogMode == 1): 
-            J2jogPos(float(incrementEntryField.get()))           
-          elif (mainMode == 1 and event.code == 'ABS_HAT0Y' and event.state == -1 and jogMode == 2): 
-            J3jogNeg(float(incrementEntryField.get()))    
-          elif (mainMode == 1 and event.code == 'ABS_HAT0Y' and event.state == 1 and jogMode == 2): 
-            J3jogPos(float(incrementEntryField.get()))
-          elif (mainMode == 1 and event.code == 'ABS_HAT0X' and event.state == 1 and jogMode == 2): 
-            J4jogNeg(float(incrementEntryField.get()))    
-          elif (mainMode == 1 and event.code == 'ABS_HAT0X' and event.state == -1 and jogMode == 2): 
-            J4jogPos(float(incrementEntryField.get()))           
-          elif (mainMode == 1 and event.code == 'ABS_HAT0Y' and event.state == -1 and jogMode == 3): 
-            J5jogNeg(float(incrementEntryField.get()))    
-          elif (mainMode == 1 and event.code == 'ABS_HAT0Y' and event.state == 1 and jogMode == 3): 
-            J5jogPos(float(incrementEntryField.get()))
-          elif (mainMode == 1 and event.code == 'ABS_HAT0X' and event.state == 1 and jogMode == 3): 
-           J6jogNeg(float(incrementEntryField.get()))    
-          elif (mainMode == 1 and event.code == 'ABS_HAT0X' and event.state == -1 and jogMode == 3): 
-            J6jogPos(float(incrementEntryField.get()))                      
-         ##CARTESIAN DIR MODE
-          elif (event.code == 'BTN_SOUTH' and event.state == 1): 
-            if mainMode != 2:
-              mainMode = 2
-              jogMode = 1
-              almStatusLab.config(text='JOGGING X & Y AXIS', style="Warn.TLabel")
-              almStatusLab2.config(text='JOGGING X & Y AXIS', style="Warn.TLabel")
-            else:                
-              jogMode +=1        
-            if jogMode == 2:
-              almStatusLab.config(text='JOGGING Z AXIS', style="Warn.TLabel")
-              almStatusLab2.config(text='JOGGING Z AXIS', style="Warn.TLabel")
-            elif jogMode == 3:
-              jogMode = 1
-              almStatusLab.config(text='JOGGING X & Y AXIS', style="Warn.TLabel")
-              almStatusLab2.config(text='JOGGING X & Y AXIS', style="Warn.TLabel")
-          ##CARTESIAN DIR JOG
-          elif (mainMode == 2 and event.code == 'ABS_HAT0Y' and event.state == -1 and jogMode == 1): 
-            XjogNeg(float(incrementEntryField.get()))    
-          elif (mainMode == 2 and event.code == 'ABS_HAT0Y' and event.state == 1 and jogMode == 1): 
-            XjogPos(float(incrementEntryField.get()))
-          elif (mainMode == 2 and event.code == 'ABS_HAT0X' and event.state == 1 and jogMode == 1): 
-            YjogNeg(float(incrementEntryField.get()))    
-          elif (mainMode == 2 and event.code == 'ABS_HAT0X' and event.state == -1 and jogMode == 1): 
-            YjogPos(float(incrementEntryField.get()))           
-          elif (mainMode == 2 and event.code == 'ABS_HAT0Y' and event.state == 1 and jogMode == 2): 
-            ZjogNeg(float(incrementEntryField.get()))    
-          elif (mainMode == 2 and event.code == 'ABS_HAT0Y' and event.state == -1 and jogMode == 2): 
-            ZjogPos(float(incrementEntryField.get()))                          
-         ##CARTESIAN ORIENTATION MODE
-          elif (event.code == 'BTN_EAST' and event.state == 1): 
-            if mainMode != 3:
-              mainMode = 3
-              jogMode = 1
-              almStatusLab.config(text='JOGGING Rx & Ry AXIS', style="Warn.TLabel")
-              almStatusLab2.config(text='JOGGING Rx & Ry AXIS', style="Warn.TLabel")
-            else:                
-              jogMode +=1        
-            if jogMode == 2:
-              almStatusLab.config(text='JOGGING Rz AXIS', style="Warn.TLabel")
-              almStatusLab2.config(text='JOGGING Rz AXIS', style="Warn.TLabel")
-            elif jogMode == 3:
-              jogMode = 1
-              almStatusLab.config(text='JOGGING Rx & Ry AXIS', style="Warn.TLabel")
-              almStatusLab2.config(text='JOGGING Rx & Ry AXIS', style="Warn.TLabel")
-          ##CARTESIAN ORIENTATION JOG
-          elif (mainMode == 3 and event.code == 'ABS_HAT0X' and event.state == -1 and jogMode == 1): 
-            RxjogNeg(float(incrementEntryField.get()))    
-          elif (mainMode == 3 and event.code == 'ABS_HAT0X' and event.state == 1 and jogMode == 1): 
-            RxjogPos(float(incrementEntryField.get()))
-          elif (mainMode == 3 and event.code == 'ABS_HAT0Y' and event.state == 1 and jogMode == 1): 
-            RyjogNeg(float(incrementEntryField.get()))    
-          elif (mainMode == 3 and event.code == 'ABS_HAT0Y' and event.state == -1 and jogMode == 1): 
-            RyjogPos(float(incrementEntryField.get()))           
-          elif (mainMode == 3 and event.code == 'ABS_HAT0X' and event.state == 1 and jogMode == 2): 
-            RzjogNeg(float(incrementEntryField.get()))    
-          elif (mainMode == 3 and event.code == 'ABS_HAT0X' and event.state == -1 and jogMode == 2): 
-            RzjogPos(float(incrementEntryField.get()))
-          ##J7 MODE
-          elif (event.code == 'BTN_START' and event.state == 1): 
-            mainMode = 4
-            almStatusLab.config(text='JOGGING TRACK', style="Warn.TLabel")
-            almStatusLab2.config(text='JOGGING TRACK', style="Warn.TLabel")
-          ##TRACK JOG
-          elif (mainMode == 4 and event.code == 'ABS_HAT0X' and event.state == 1): 
-            J7jogPos(float(incrementEntryField.get()))    
-          elif (mainMode == 4 and event.code == 'ABS_HAT0X' and event.state == -1): 
-            J7jogNeg(float(incrementEntryField.get()))                   
-          ##TEACH POS          
-          elif (event.code == 'BTN_NORTH' and event.state == 1): 
-            teachInsertBelSelected()
-          ##GRIPPER         
-          elif (event.code == 'BTN_SELECT' and event.state == 1): 
-            if grip == 0:
-              grip = 1
-              outputNum = DO1offEntryField.get()
-              command = "OFX"+outputNum+"\n"
-              ser2.write(command.encode())
-              ser2.flushInput()
-              time.sleep(.1)
-              ser2.read() 
-            else:
-              grip = 0
-              outputNum = DO1onEntryField.get()
-              command = "ONX"+outputNum+"\n"
-              ser2.write(command.encode())
-              ser2.flushInput()
-              time.sleep(.1)
-              ser2.read()     
-              time.sleep(.1)
-          else:
-            pass   
-      except:
-      #else:
-        almStatusLab.config(text='XBOX CONTROLLER NOT RESPONDING', style="Alarm.TLabel")
-        almStatusLab2.config(text='XBOX CONTROLLER NOT RESPONDING', style="Alarm.TLabel")        
-  t = threading.Thread(target=threadxbox)
-  t.start()
-
-
-
-  
-def ChgDis(val):
-  curSpd = int(incrementEntryField.get())
-  if curSpd >=100 and val == 0:
-    curSpd = 100 
-  elif curSpd < 5 and val == 0:  
-    curSpd += 1
-  elif val == 0:
-    curSpd += 5   
-  if curSpd <=1 and val == 1:
-    curSpd = 1 
-  elif curSpd <= 5 and val == 1:  
-    curSpd -= 1
-  elif val == 1:
-    curSpd -= 5
-  elif val == 2:
-    curSpd = 5  
-  incrementEntryField.delete(0, 'end')
-  incrementEntryField.insert(0,str(curSpd))
-
-  time.sleep(.3)  
-
-
-def ChgSpd(val):
-  curSpd = int(speedEntryField.get())
-  if curSpd >=100 and val == 0:
-    curSpd = 100 
-  elif curSpd < 5 and val == 0:  
-    curSpd += 1
-  elif val == 0:
-    curSpd += 5   
-  if curSpd <=1 and val == 1:
-    curSpd = 1 
-  elif curSpd <= 5 and val == 1:  
-    curSpd -= 1
-  elif val == 1:
-    curSpd -= 5
-  elif val == 2:
-    curSpd = 5  
-  speedEntryField.delete(0, 'end')    
-  speedEntryField.insert(0,str(curSpd))  
-
+##end xbox ###################################################################################################################################################
 
 def send_serial_command(cmd):
-    global progRunning
+    global progRunning, liveJog, sliderActive
     ser.write(cmd.encode())    
     ser.flushInput()
     time.sleep(0.1)
     response = str(ser.readline().strip(), 'utf-8')
     IncJogStatVal = int(IncJogStat.get())
-    if IncJogStatVal or progRunning:
+    if IncJogStatVal or progRunning or sliderActive:
       if response[:1] == 'E':
         ErrorHandler(response)
       else:
         displayPosition(response) 		
-
+    sliderActive = False 
 
 
 def start_send_serial_thread(command):
@@ -9871,7 +10197,7 @@ def updateVisOp():
   Visoptmenu.place(x=390, y=52)
   Visoptmenu.bind("<<ComboboxSelected>>", VisOpUpdate)
 
-def VisOpUpdate(foo):
+def VisOpUpdate(event):
   global selectedTemplate
   file = selectedTemplate.get()
   print(file)
@@ -9909,7 +10235,7 @@ def zeroBrCn():
   #VisZoomSlide.set(50)
   take_pic()
 
-def VisUpdateBriCon(foo):
+def VisUpdateBriCon(event):
   take_pic()  
 
   
@@ -10046,7 +10372,7 @@ def GCstepFwd():
       tab7.gcodeView.itemconfig(row, {'fg': 'dodger blue'})
     tab7.gcodeView.itemconfig(GCselRow, {'fg': 'blue2'})
     for row in range (GCselRow+1,last):
-      tab7.gcodeView.itemconfig(row, {'fg': 'black'})
+      tab7.gcodeView.itemconfig(row, {'fg': 'gray'})
     tab7.gcodeView.selection_clear(0, END)
     GCselRow += 1
     tab7.gcodeView.select_set(GCselRow)
@@ -10520,7 +10846,7 @@ def GCexecuteRow():
 ###LABELS#################################################################
 ##########################################################################
 
-CartjogFrame = Frame(tab1, width=1536, height=792,)
+CartjogFrame = Frame(tab1, width=1236, height=792,)
 CartjogFrame.place(x=330, y=0)
 
 curRowLab = Label(tab1, text = "Current Row:")
@@ -10622,7 +10948,7 @@ J1jogFrame = Frame(tab1, width=340, height=40,)
 J1jogFrame.place(x=810, y=10)
 J1Lab = Label(J1jogFrame, font=("Arial", 18), text = "J1")
 J1Lab.place(x=5, y=5)
-J1curAngEntryField = Entry(J1jogFrame,width=5,justify="center")
+J1curAngEntryField = Entry(J1jogFrame,width=4,justify="center")
 J1curAngEntryField.place(x=35, y=9)
 def SelJ1jogNeg(self):
   IncJogStatVal = int(IncJogStat.get())
@@ -10650,16 +10976,21 @@ J1posLimLab = Label(J1jogFrame, font=("Arial", 8), text = str(J1PosLim), style="
 J1posLimLab.place(x=270, y=25)
 J1slidelabel = Label(J1jogFrame)
 J1slidelabel.place(x=190, y=25)
-def J1sliderUpdate(foo):
-  J1slidelabel.config(text=round(float(J1jogslide.get()),2))   
-def J1sliderExecute(foo): 
+def J1sliderUpdate(event):
+  J1slidelabel.config(text=round(float(J1jogslide.get()),2))
+def J1sliderExecute(event):
+  global sliderActive
+  sliderActive = True
   J1delta = float(J1jogslide.get()) - float(J1curAngEntryField.get())
   if (J1delta < 0):
     J1jogNeg(abs(J1delta))
   else:
-    J1jogPos(abs(J1delta))       
+    J1jogPos(abs(J1delta))
+    
 J1jogslide = Scale(J1jogFrame, from_=-J1NegLim, to=J1PosLim,  length=180, orient=HORIZONTAL,  command=J1sliderUpdate)
 J1jogslide.bind("<ButtonRelease-1>", J1sliderExecute)
+
+
 J1jogslide.place(x=115, y=7)
 
 ##J2
@@ -10667,7 +10998,7 @@ J2jogFrame = Frame(tab1, width=340, height=40,)
 J2jogFrame.place(x=810, y=55)
 J2Lab = Label(J2jogFrame, font=("Arial", 18), text = "J2")
 J2Lab.place(x=5, y=5)
-J2curAngEntryField = Entry(J2jogFrame,width=5,justify="center")
+J2curAngEntryField = Entry(J2jogFrame,width=4,justify="center")
 J2curAngEntryField.place(x=35, y=9)
 def SelJ2jogNeg(self):
   IncJogStatVal = int(IncJogStat.get())
@@ -10695,9 +11026,11 @@ J2posLimLab = Label(J2jogFrame, font=("Arial", 8), text = str(J2PosLim), style="
 J2posLimLab.place(x=270, y=25)
 J2slidelabel = Label(J2jogFrame)
 J2slidelabel.place(x=190, y=25)
-def J2sliderUpdate(foo):
+def J2sliderUpdate(event):
   J2slidelabel.config(text=round(float(J2jogslide.get()),2))   
-def J2sliderExecute(foo): 
+def J2sliderExecute(event):
+  global sliderActive
+  sliderActive = True 
   J2delta = float(J2jogslide.get()) - float(J2curAngEntryField.get())
   if (J2delta < 0):
     J2jogNeg(abs(J2delta))
@@ -10712,7 +11045,7 @@ J3jogFrame = Frame(tab1, width=340, height=40,)
 J3jogFrame.place(x=810, y=100)
 J3Lab = Label(J3jogFrame, font=("Arial", 18), text = "J3")
 J3Lab.place(x=5, y=5)
-J3curAngEntryField = Entry(J3jogFrame,width=5,justify="center")
+J3curAngEntryField = Entry(J3jogFrame,width=4,justify="center")
 J3curAngEntryField.place(x=35, y=9)
 def SelJ3jogNeg(self):
   IncJogStatVal = int(IncJogStat.get())
@@ -10740,9 +11073,11 @@ J3posLimLab = Label(J3jogFrame, font=("Arial", 8), text = str(J3PosLim), style="
 J3posLimLab.place(x=270, y=25)
 J3slidelabel = Label(J3jogFrame)
 J3slidelabel.place(x=190, y=25)
-def J3sliderUpdate(foo):
+def J3sliderUpdate(event):
   J3slidelabel.config(text=round(float(J3jogslide.get()),2))   
-def J3sliderExecute(foo): 
+def J3sliderExecute(event):
+  global sliderActive
+  sliderActive = True 
   J3delta = float(J3jogslide.get()) - float(J3curAngEntryField.get())
   if (J3delta < 0):
     J3jogNeg(abs(J3delta))
@@ -10757,7 +11092,7 @@ J4jogFrame = Frame(tab1, width=340, height=40,)
 J4jogFrame.place(x=1160, y=10)
 J4Lab = Label(J4jogFrame, font=("Arial", 18), text = "J4")
 J4Lab.place(x=5, y=5)
-J4curAngEntryField = Entry(J4jogFrame,width=5,justify="center")
+J4curAngEntryField = Entry(J4jogFrame,width=4,justify="center")
 J4curAngEntryField.place(x=35, y=9)
 def SelJ4jogNeg(self):
   IncJogStatVal = int(IncJogStat.get())
@@ -10785,9 +11120,11 @@ J4posLimLab = Label(J4jogFrame, font=("Arial", 8), text = str(J4PosLim), style="
 J4posLimLab.place(x=270, y=25)
 J4slidelabel = Label(J4jogFrame)
 J4slidelabel.place(x=190, y=25)
-def J4sliderUpdate(foo):
+def J4sliderUpdate(event):
   J4slidelabel.config(text=round(float(J4jogslide.get()),2))   
-def J4sliderExecute(foo): 
+def J4sliderExecute(event):
+  global sliderActive
+  sliderActive = True 
   J4delta = float(J4jogslide.get()) - float(J4curAngEntryField.get())
   if (J4delta < 0):
     J4jogNeg(abs(J4delta))
@@ -10802,7 +11139,7 @@ J5jogFrame = Frame(tab1, width=340, height=40,)
 J5jogFrame.place(x=1160, y=55)
 J5Lab = Label(J5jogFrame, font=("Arial", 18), text = "J5")
 J5Lab.place(x=5, y=5)
-J5curAngEntryField = Entry(J5jogFrame,width=5,justify="center")
+J5curAngEntryField = Entry(J5jogFrame,width=4,justify="center")
 J5curAngEntryField.place(x=35, y=9)
 def SelJ5jogNeg(self):
   IncJogStatVal = int(IncJogStat.get())
@@ -10830,9 +11167,11 @@ J5posLimLab = Label(J5jogFrame, font=("Arial", 8), text = str(J5PosLim), style="
 J5posLimLab.place(x=270, y=25)
 J5slidelabel = Label(J5jogFrame)
 J5slidelabel.place(x=190, y=25)
-def J5sliderUpdate(foo):
+def J5sliderUpdate(event):
   J5slidelabel.config(text=round(float(J5jogslide.get()),2))   
-def J5sliderExecute(foo): 
+def J5sliderExecute(event):
+  global sliderActive
+  sliderActive = True 
   J5delta = float(J5jogslide.get()) - float(J5curAngEntryField.get())
   if (J5delta < 0):
     J5jogNeg(abs(J5delta))
@@ -10847,7 +11186,7 @@ J6jogFrame = Frame(tab1, width=340, height=40,)
 J6jogFrame.place(x=1160, y=100)
 J6Lab = Label(J6jogFrame, font=("Arial", 18), text = "J6")
 J6Lab.place(x=5, y=5)
-J6curAngEntryField = Entry(J6jogFrame,width=5,justify="center")
+J6curAngEntryField = Entry(J6jogFrame,width=4,justify="center")
 J6curAngEntryField.place(x=35, y=9)
 def SelJ6jogNeg(self):
   IncJogStatVal = int(IncJogStat.get())
@@ -10875,9 +11214,11 @@ J6posLimLab = Label(J6jogFrame, font=("Arial", 8), text = str(J6PosLim), style="
 J6posLimLab.place(x=270, y=25)
 J6slidelabel = Label(J6jogFrame)
 J6slidelabel.place(x=190, y=25)
-def J6sliderUpdate(foo):
+def J6sliderUpdate(event):
   J6slidelabel.config(text=round(float(J6jogslide.get()),2))   
-def J6sliderExecute(foo): 
+def J6sliderExecute(event):
+  global sliderActive
+  sliderActive = True 
   J6delta = float(J6jogslide.get()) - float(J6curAngEntryField.get())
   if (J6delta < 0):
     J6jogNeg(abs(J6delta))
@@ -10896,7 +11237,7 @@ J7jogFrame['relief'] = 'raised'
 J7jogFrame.place(x=980, y=350)
 J7Lab = Label(J7jogFrame, font=("Arial", 14), text = "7th Axis")
 J7Lab.place(x=15, y=5)
-J7curAngEntryField = Entry(J7jogFrame,width=5,justify="center")
+J7curAngEntryField = Entry(J7jogFrame,width=4,justify="center")
 J7curAngEntryField.place(x=95, y=9)
 def SelJ7jogNeg(self):
   IncJogStatVal = int(IncJogStat.get())
@@ -10924,9 +11265,11 @@ J7posLimLab = Label(J7jogFrame, font=("Arial", 8), text = str(J7PosLim), style="
 J7posLimLab.place(x=110, y=30)
 J7slideLimLab = Label(J7jogFrame)
 J7slideLimLab.place(x=60, y=70)
-def J7sliderUpdate(foo):
+def J7sliderUpdate(event):
   J7slideLimLab.config(text=round(float(J7jogslide.get()),2))   
-def J7sliderExecute(foo): 
+def J7sliderExecute(event):
+  global sliderActive
+  sliderActive = True 
   J7delta = float(J7jogslide.get()) - float(J7curAngEntryField.get())
   if (J7delta < 0):
     J7jogNeg(abs(J7delta))
@@ -10942,7 +11285,7 @@ J8jogFrame['relief'] = 'raised'
 J8jogFrame.place(x=1160, y=350)
 J8Lab = Label(J8jogFrame, font=("Arial", 14), text = "8th Axis")
 J8Lab.place(x=15, y=5)
-J8curAngEntryField = Entry(J8jogFrame,width=5,justify="center")
+J8curAngEntryField = Entry(J8jogFrame,width=4,justify="center")
 J8curAngEntryField.place(x=95, y=9)
 def SelJ8jogNeg(self):
   IncJogStatVal = int(IncJogStat.get())
@@ -10970,9 +11313,11 @@ J8posLimLab = Label(J8jogFrame, font=("Arial", 8), text = str(J8PosLim), style="
 J8posLimLab.place(x=110, y=30)
 J8slideLimLab = Label(J8jogFrame)
 J8slideLimLab.place(x=60, y=70)
-def J8sliderUpdate(foo):
+def J8sliderUpdate(event):
   J8slideLimLab.config(text=round(float(J8jogslide.get()),2))   
-def J8sliderExecute(foo): 
+def J8sliderExecute(event):
+  global sliderActive
+  sliderActive = True 
   J8delta = float(J8jogslide.get()) - float(J8curAngEntryField.get())
   if (J8delta < 0):
     J8jogNeg(abs(J8delta))
@@ -10988,7 +11333,7 @@ J9jogFrame['relief'] = 'raised'
 J9jogFrame.place(x=1340, y=350)
 J9Lab = Label(J9jogFrame, font=("Arial", 14), text = "9th Axis")
 J9Lab.place(x=15, y=5)
-J9curAngEntryField = Entry(J9jogFrame,width=5,justify="center")
+J9curAngEntryField = Entry(J9jogFrame,width=4,justify="center")
 J9curAngEntryField.place(x=95, y=9)
 def SelJ9jogNeg(self):
   IncJogStatVal = int(IncJogStat.get())
@@ -11016,9 +11361,11 @@ J9posLimLab = Label(J9jogFrame, font=("Arial", 8), text = str(J9PosLim), style="
 J9posLimLab.place(x=110, y=30)
 J9slideLimLab = Label(J9jogFrame)
 J9slideLimLab.place(x=60, y=70)
-def J9sliderUpdate(foo):
+def J9sliderUpdate(event):
   J9slideLimLab.config(text=round(float(J9jogslide.get()),2))   
-def J9sliderExecute(foo): 
+def J9sliderExecute(event):
+  global sliderActive
+  sliderActive = True 
   J9delta = float(J9jogslide.get()) - float(J9curAngEntryField.get())
   if (J9delta < 0):
     J9jogNeg(abs(J9delta))
@@ -11088,37 +11435,37 @@ roundEntryField.place(x=590, y=80)
 
   ### X ###
 
-XcurEntryField = Entry(CartjogFrame,width=5,justify="center")
+XcurEntryField = Entry(CartjogFrame,width=4,justify="center")
 XcurEntryField.place(x=660, y=195)
 
 
    ### Y ###
 
-YcurEntryField = Entry(CartjogFrame,width=5,justify="center")
+YcurEntryField = Entry(CartjogFrame,width=4,justify="center")
 YcurEntryField.place(x=750, y=195)
 
 
    ### Z ###
 
-ZcurEntryField = Entry(CartjogFrame,width=5,justify="center")
+ZcurEntryField = Entry(CartjogFrame,width=4,justify="center")
 ZcurEntryField.place(x=840, y=195)
 
 
    ### Rz ###
 
-RzcurEntryField = Entry(CartjogFrame,width=5,justify="center")
+RzcurEntryField = Entry(CartjogFrame,width=4,justify="center")
 RzcurEntryField.place(x=930, y=195)
 
 
    ### Ry ###
 
-RycurEntryField = Entry(CartjogFrame,width=5,justify="center")
+RycurEntryField = Entry(CartjogFrame,width=4,justify="center")
 RycurEntryField.place(x=1020, y=195)
 
 
    ### Rx ###
 
-RxcurEntryField = Entry(CartjogFrame,width=5,justify="center")
+RxcurEntryField = Entry(CartjogFrame,width=4,justify="center")
 RxcurEntryField.place(x=1110, y=195)
 
 
@@ -11152,7 +11499,7 @@ reloadProgBut.place(x=390, y=725)
 
 speedOption=StringVar(tab1)
 speedMenu=OptionMenu(tab1, speedOption, "Percent", "Percent", "Seconds", "mm per Sec")
-speedMenu.place(x=412, y=76)
+speedMenu.place(x=417, y=76)
 
 
 
@@ -11164,7 +11511,7 @@ menu.grid(row=2,column=2)
 menu.config(width=18)
 menu.place(x=700, y=180)
 
-SavePosEntryField = Entry(tab1,width=5,justify="center")
+SavePosEntryField = Entry(tab1,width=4,justify="center")
 #SavePosEntryField.place(x=800, y=183)
 
 
@@ -11213,72 +11560,72 @@ jumpTabBut.place(x=700, y=580)
 
 
 
-waitTimeEntryField = Entry(tab1,width=5,justify="center")
+waitTimeEntryField = Entry(tab1,width=4,justify="center")
 waitTimeEntryField.place(x=855, y=505)
 
-#waitInputEntryField = Entry(tab1,width=5,justify="center")
+#waitInputEntryField = Entry(tab1,width=4,justify="center")
 #waitInputEntryField.place(x=855, y=505)
 
-#waitInputOffEntryField = Entry(tab1,width=5,justify="center")
+#waitInputOffEntryField = Entry(tab1,width=4,justify="center")
 #waitInputOffEntryField.place(x=855, y=545)
 
-#outputOnEntryField = Entry(tab1,width=5,justify="center")
+#outputOnEntryField = Entry(tab1,width=4,justify="center")
 #outputOnEntryField.place(x=855, y=585)
 
-#outputOffEntryField = Entry(tab1,width=5,justify="center")
+#outputOffEntryField = Entry(tab1,width=4,justify="center")
 #outputOffEntryField.place(x=855, y=625)
 
-tabNumEntryField = Entry(tab1,width=5,justify="center")
+tabNumEntryField = Entry(tab1,width=4,justify="center")
 tabNumEntryField.place(x=855, y=545)
 
-jumpTabEntryField = Entry(tab1,width=5,justify="center")
+jumpTabEntryField = Entry(tab1,width=4,justify="center")
 jumpTabEntryField.place(x=855, y=585)
 
 ### SERVO BUTTON ###
 servoBut = Button(tab1,  text="Servo",  width=22,   command = Servo)
 servoBut.place(x=700, y=625)
 
-servoNumEntryField = Entry(tab1,width=5,justify="center")
+servoNumEntryField = Entry(tab1,width=4,justify="center")
 servoNumEntryField.place(x=855, y=630)
 
-servoPosEntryField = Entry(tab1,width=5,justify="center")
+servoPosEntryField = Entry(tab1,width=4,justify="center")
 servoPosEntryField.place(x=895, y=630)
 
 servoLab = Label(tab1,font=("Arial", 6), text = "Number      Position")
-servoLab.place(x=855, y=617)
+servoLab.place(x=855, y=615)
 
 
 ### REGISTER BUTTON ###
 RegNumBut = Button(tab1,  text="Register",  width=22,   command = insertRegister)
 RegNumBut.place(x=700, y=665)
 
-regNumEntryField = Entry(tab1,width=5,justify="center")
+regNumEntryField = Entry(tab1,width=4,justify="center")
 regNumEntryField.place(x=855, y=670)
 
-regEqEntryField = Entry(tab1,width=5,justify="center")
+regEqEntryField = Entry(tab1,width=4,justify="center")
 regEqEntryField.place(x=895, y=670)
 
-regEqLab = Label(tab1,font=("Arial", 6), text = "Register       (++/--)")
-regEqLab.place(x=855, y=657)
+regEqLab = Label(tab1,font=("Arial", 6), text = "Register      (++/--)")
+regEqLab.place(x=855, y=655)
 
 
 ### VISION FIND BUTTON ###
 visFindBut = Button(tab1,  text="Vision Find",  width=22,   command = insertvisFind)
 visFindBut.place(x=700, y=705)
 
-visPassEntryField = Entry(tab1,width=5,justify="center")
+visPassEntryField = Entry(tab1,width=4,justify="center")
 visPassEntryField.place(x=855, y=710)
 
-visFailEntryField = Entry(tab1,width=5,justify="center")
+visFailEntryField = Entry(tab1,width=4,justify="center")
 visFailEntryField.place(x=895, y=710)
 
 visPassLab = Label(tab1,font=("Arial", 6), text = "Pass Tab     Fail Tab")
-visPassLab.place(x=855, y=697)
+visPassLab.place(x=855, y=695)
 
 
 
 ### IF THEN STATEMENT ###
-ifThenFrame = Frame(tab1, width=550, height=40,)
+ifThenFrame = Frame(tab1, width=520, height=40,)
 ifThenFrame.place(x=955, y=470)
 
 ifSelLab = Label(ifThenFrame,font=("Arial 10 bold"), text = "IF")
@@ -11290,13 +11637,13 @@ iFmenu.grid(row=2,column=2)
 iFmenu.config(width=12)
 iFmenu.place(x=20, y=2)
 
-IfVarEntryField = Entry(ifThenFrame,width=5,justify="center")
+IfVarEntryField = Entry(ifThenFrame,width=4,justify="center")
 IfVarEntryField.place(x=140, y=5)
 
 ifEqualLab = Label(ifThenFrame,font=("Arial 10 bold"), text = "=")
-ifEqualLab.place(x=180, y=5)
+ifEqualLab.place(x=177, y=5)
 
-IfInputEntryField = Entry(ifThenFrame,width=5,justify="center")
+IfInputEntryField = Entry(ifThenFrame,width=4,justify="center")
 IfInputEntryField.place(x=195, y=5)
 
 iFselection=StringVar(ifThenFrame)
@@ -11311,7 +11658,7 @@ IfDestEntryField.place(x=340, y=5)
 ifEqualLab = Label(ifThenFrame,font=("Arial 10 bold"), text = "•")
 ifEqualLab.place(x=405, y=5)
 
-insertIfCMDBut = Button(ifThenFrame,  text="Insert IF CMD",  width=15,   command = IfCMDInsert)
+insertIfCMDBut = Button(ifThenFrame,  text="Insert IF CMD",  width=12,   command = IfCMDInsert)
 insertIfCMDBut.place(x=420, y=0)
 
 
@@ -11332,19 +11679,19 @@ waitmenu.grid(row=2,column=2)
 waitmenu.config(width=12)
 waitmenu.place(x=40, y=2)
 
-waitVarEntryField = Entry(waitFrame,width=5,justify="center")
+waitVarEntryField = Entry(waitFrame,width=4,justify="center")
 waitVarEntryField.place(x=160, y=5)
 
 waitEqualLab = Label(waitFrame,font=("Arial 10 bold"), text = "=")
-waitEqualLab.place(x=200, y=5)
+waitEqualLab.place(x=197, y=5)
 
-waitInputEntryField = Entry(waitFrame,width=5,justify="center")
+waitInputEntryField = Entry(waitFrame,width=4,justify="center")
 waitInputEntryField.place(x=215, y=5)
 
 waitTimoutEqualLab = Label(waitFrame,font=("Arial 10 bold"), text = "Timeout =")
 waitTimoutEqualLab.place(x=260, y=5)
 
-waitTimeoutEntryField = Entry(waitFrame,width=6,justify="center")
+waitTimeoutEntryField = Entry(waitFrame,width=5,justify="center")
 waitTimeoutEntryField.place(x=335, y=5)
 
 waitEqualLab = Label(waitFrame,font=("Arial 10 bold"), text = "•")
@@ -11359,7 +11706,7 @@ insertwaitCMDBut.place(x=403, y=0)
 
 
 ### SET STATEMENT ###
-setFrame = Frame(tab1, width=550, height=40,)
+setFrame = Frame(tab1, width=500, height=40,)
 setFrame.place(x=935, y=550)
 
 setSelLab = Label(setFrame,font=("Arial 10 bold"), text = "SET")
@@ -11371,13 +11718,13 @@ setmenu.grid(row=2,column=2)
 setmenu.config(width=12)
 setmenu.place(x=40, y=2)
 
-setVarEntryField = Entry(setFrame,width=5,justify="center")
+setVarEntryField = Entry(setFrame,width=4,justify="center")
 setVarEntryField.place(x=160, y=5)
 
 setEqualLab = Label(setFrame,font=("Arial 10 bold"), text = "=")
-setEqualLab.place(x=200, y=5)
+setEqualLab.place(x=197, y=5)
 
-setInputEntryField = Entry(setFrame,width=5,justify="center")
+setInputEntryField = Entry(setFrame,width=4,justify="center")
 setInputEntryField.place(x=215, y=5)
 
 setEqualLab = Label(setFrame,font=("Arial 10 bold"), text = "•")
@@ -11392,41 +11739,41 @@ insertsetCMDBut.place(x=278, y=0)
 #buttons with multiple entry
 
 ### READ COM DEVICE ###
-readCOMFrame = Frame(tab1, width=550, height=45,)
+readCOMFrame = Frame(tab1, width=450, height=45,)
 readCOMFrame.place(x=975, y=692)
 
 readAuxComBut = Button(readCOMFrame,  text="Read COM Device",  width=22,   command = ReadAuxCom)
 readAuxComBut.place(x=0, y=13)
 
-auxPortEntryField = Entry(readCOMFrame,width=5,justify="center")
+auxPortEntryField = Entry(readCOMFrame,width=4,justify="center")
 auxPortEntryField.place(x=160, y=17)
 
-auxCharEntryField = Entry(readCOMFrame,width=5,justify="center")
+auxCharEntryField = Entry(readCOMFrame,width=4,justify="center")
 auxCharEntryField.place(x=200, y=17)
 
 auxComLab = Label(readCOMFrame,font=("Arial", 6), text = "Port             Char")
-auxComLab.place(x=160, y=5)
+auxComLab.place(x=160, y=3)
 
 
 
 ### READ POSITION REG ###
-posRegFrame = Frame(tab1, width=550, height=45,)
+posRegFrame = Frame(tab1, width=450, height=45,)
 posRegFrame.place(x=975, y=652)
 
 StorPosBut = Button(posRegFrame,  text="Position Register",  width=22,   command = storPos)
 StorPosBut.place(x=0, y=13)
 
-storPosNumEntryField = Entry(posRegFrame,width=5,justify="center")
+storPosNumEntryField = Entry(posRegFrame,width=4,justify="center")
 storPosNumEntryField.place(x=160, y=17)
 
-storPosElEntryField = Entry(posRegFrame,width=5,justify="center")
+storPosElEntryField = Entry(posRegFrame,width=4,justify="center")
 storPosElEntryField.place(x=200, y=17)
 
-storPosValEntryField = Entry(posRegFrame,width=5,justify="center")
+storPosValEntryField = Entry(posRegFrame,width=4,justify="center")
 storPosValEntryField.place(x=240, y=17)
 
-storPosEqLab = Label(posRegFrame,font=("Arial", 6), text = " Pos Reg      Element       (++/--)")
-storPosEqLab.place(x=160, y=5)
+storPosEqLab = Label(posRegFrame,font=("Arial", 6), text = "Pos Reg      Element       (++/--)")
+storPosEqLab.place(x=158, y=3)
 
 
 
@@ -11472,17 +11819,17 @@ offline_button.place(x=635, y=125)
 
 
 runProgBut = Button(tab1,   command = runProg)
-playPhoto=PhotoImage(file="play-icon.gif")
+playPhoto=PhotoImage(file="play-icon.png")
 runProgBut.config(image=playPhoto)
 runProgBut.place(x=20, y=80)
 
-xboxBut = Button(tab1,  command = xbox)
-xboxPhoto=PhotoImage(file="xbox.gif")
+xboxBut = Button(tab1,  command = start_xbox)
+xboxPhoto=PhotoImage(file="xbox.png")
 xboxBut.config(image=xboxPhoto)
 xboxBut.place(x=700, y=40)
 
 stopProgBut = Button(tab1,   command = stopProg)
-stopPhoto=PhotoImage(file="stop-icon.gif")
+stopPhoto=PhotoImage(file="stop-icon.png")
 stopProgBut.config(image=stopPhoto)
 stopProgBut.place(x=220, y=80)
 
@@ -11493,7 +11840,7 @@ fwdBut = Button(tab1,  text="FWD", command = stepFwd)
 fwdBut.place(x=160, y=80)
 
 IncJogCbut = Checkbutton(tab1, text="Incremental Jog",variable = IncJogStat)
-IncJogCbut.place(x=412, y=46)
+IncJogCbut.place(x=417, y=48)
 
 
 def SelXjogNeg(self):
@@ -12084,60 +12431,60 @@ cmdRecEntryField = Entry(tab2,width=95,justify="center")
 cmdRecEntryField.place(x=10, y=645)
 
 
-J1calOffEntryField = Entry(tab2,width=8,justify="center")
+J1calOffEntryField = Entry(tab2,width=5,justify="center")
 J1calOffEntryField.place(x=540, y=90)
 
-J2calOffEntryField = Entry(tab2,width=8,justify="center")
+J2calOffEntryField = Entry(tab2,width=5,justify="center")
 J2calOffEntryField.place(x=540, y=120)
 
-J3calOffEntryField = Entry(tab2,width=8,justify="center")
+J3calOffEntryField = Entry(tab2,width=5,justify="center")
 J3calOffEntryField.place(x=540, y=150)
 
-J4calOffEntryField = Entry(tab2,width=8,justify="center")
+J4calOffEntryField = Entry(tab2,width=5,justify="center")
 J4calOffEntryField.place(x=540, y=180)
 
-J5calOffEntryField = Entry(tab2,width=8,justify="center")
+J5calOffEntryField = Entry(tab2,width=5,justify="center")
 J5calOffEntryField.place(x=540, y=210)
 
-J6calOffEntryField = Entry(tab2,width=8,justify="center")
+J6calOffEntryField = Entry(tab2,width=5,justify="center")
 J6calOffEntryField.place(x=540, y=240)
 
-J7calOffEntryField = Entry(tab2,width=8,justify="center")
+J7calOffEntryField = Entry(tab2,width=5,justify="center")
 J7calOffEntryField.place(x=540, y=280)
 
-J8calOffEntryField = Entry(tab2,width=8,justify="center")
+J8calOffEntryField = Entry(tab2,width=5,justify="center")
 J8calOffEntryField.place(x=540, y=310)
 
-J9calOffEntryField = Entry(tab2,width=8,justify="center")
+J9calOffEntryField = Entry(tab2,width=5,justify="center")
 J9calOffEntryField.place(x=540, y=340)
 
 
 
-axis7lengthEntryField = Entry(tab2,width=6,justify="center")
+axis7lengthEntryField = Entry(tab2,width=5,justify="center")
 axis7lengthEntryField.place(x=750, y=340)
 
-axis7rotEntryField = Entry(tab2,width=6,justify="center")
+axis7rotEntryField = Entry(tab2,width=5,justify="center")
 axis7rotEntryField.place(x=750, y=370)
 
-axis7stepsEntryField = Entry(tab2,width=6,justify="center")
+axis7stepsEntryField = Entry(tab2,width=5,justify="center")
 axis7stepsEntryField.place(x=750, y=400)
 
-axis8lengthEntryField = Entry(tab2,width=6,justify="center")
+axis8lengthEntryField = Entry(tab2,width=5,justify="center")
 axis8lengthEntryField.place(x=950, y=340)
 
-axis8rotEntryField = Entry(tab2,width=6,justify="center")
+axis8rotEntryField = Entry(tab2,width=5,justify="center")
 axis8rotEntryField.place(x=950, y=370)
 
-axis8stepsEntryField = Entry(tab2,width=6,justify="center")
+axis8stepsEntryField = Entry(tab2,width=5,justify="center")
 axis8stepsEntryField.place(x=950, y=400)
 
-axis9lengthEntryField = Entry(tab2,width=6,justify="center")
+axis9lengthEntryField = Entry(tab2,width=5,justify="center")
 axis9lengthEntryField.place(x=1150, y=340)
 
-axis9rotEntryField = Entry(tab2,width=6,justify="center")
+axis9rotEntryField = Entry(tab2,width=5,justify="center")
 axis9rotEntryField.place(x=1150, y=370)
 
-axis9stepsEntryField = Entry(tab2,width=6,justify="center")
+axis9stepsEntryField = Entry(tab2,width=5,justify="center")
 axis9stepsEntryField.place(x=1150, y=400)
 
 
@@ -12198,7 +12545,7 @@ color_options = [
     "White", "Gainsboro", "AntiqueWhite", "Cornsilk"
 ]
 # Dropdowns
-main_color_var = tk.StringVar(value="Orange")
+main_color_var = tk.StringVar(value="Royal Blue")
 
 RobotColors = Label(tab2, font=("Arial 10 bold"), text = "Robot Color")
 RobotColors.place(x=1090, y=60)
@@ -12269,17 +12616,17 @@ UFRyLab.place(x=1080, y=90)
 UFRzLab = Label(tab3, font=("Arial", 11), text = "Rx")
 UFRzLab.place(x=1120, y=90)
 
-TFxEntryField = Entry(tab3,width=5,justify="center")
+TFxEntryField = Entry(tab3,width=4,justify="center")
 TFxEntryField.place(x=910, y=115)
-TFyEntryField = Entry(tab3,width=5,justify="center")
+TFyEntryField = Entry(tab3,width=4,justify="center")
 TFyEntryField.place(x=950, y=115)
-TFzEntryField = Entry(tab3,width=5,justify="center")
+TFzEntryField = Entry(tab3,width=4,justify="center")
 TFzEntryField.place(x=990, y=115)
-TFrzEntryField = Entry(tab3,width=5,justify="center")
+TFrzEntryField = Entry(tab3,width=4,justify="center")
 TFrzEntryField.place(x=1030, y=115)
-TFryEntryField = Entry(tab3,width=5,justify="center")
+TFryEntryField = Entry(tab3,width=4,justify="center")
 TFryEntryField.place(x=1070, y=115)
-TFrxEntryField = Entry(tab3,width=5,justify="center")
+TFrxEntryField = Entry(tab3,width=4,justify="center")
 TFrxEntryField.place(x=1110, y=115)
 
 DisableWristCbut = Checkbutton(tab3, text="Disable Wrist Rotation - Linear Moves",variable = DisableWristRot)
@@ -12307,23 +12654,23 @@ J8MotDirLab.place(x=10, y=195)
 J9MotDirLab = Label(tab3, font=("Arial", 8), text = "J9 Motor Direction")
 J9MotDirLab.place(x=10, y=220)
 
-J1MotDirEntryField = Entry(tab3,width=8,justify="center")
+J1MotDirEntryField = Entry(tab3,width=5,justify="center")
 J1MotDirEntryField.place(x=110, y=20)
-J2MotDirEntryField = Entry(tab3,width=8,justify="center")
+J2MotDirEntryField = Entry(tab3,width=5,justify="center")
 J2MotDirEntryField.place(x=110, y=45)
-J3MotDirEntryField = Entry(tab3,width=8,justify="center")
+J3MotDirEntryField = Entry(tab3,width=5,justify="center")
 J3MotDirEntryField.place(x=110, y=70)
-J4MotDirEntryField = Entry(tab3,width=8,justify="center")
+J4MotDirEntryField = Entry(tab3,width=5,justify="center")
 J4MotDirEntryField.place(x=110, y=95)
-J5MotDirEntryField = Entry(tab3,width=8,justify="center")
+J5MotDirEntryField = Entry(tab3,width=5,justify="center")
 J5MotDirEntryField.place(x=110, y=120)
-J6MotDirEntryField = Entry(tab3,width=8,justify="center")
+J6MotDirEntryField = Entry(tab3,width=5,justify="center")
 J6MotDirEntryField.place(x=110, y=145)
-J7MotDirEntryField = Entry(tab3,width=8,justify="center")
+J7MotDirEntryField = Entry(tab3,width=5,justify="center")
 J7MotDirEntryField.place(x=110, y=170)
-J8MotDirEntryField = Entry(tab3,width=8,justify="center")
+J8MotDirEntryField = Entry(tab3,width=5,justify="center")
 J8MotDirEntryField.place(x=110, y=195)
-J9MotDirEntryField = Entry(tab3,width=8,justify="center")
+J9MotDirEntryField = Entry(tab3,width=5,justify="center")
 J9MotDirEntryField.place(x=110, y=220)
 
 
@@ -12348,23 +12695,23 @@ J8CalDirLab.place(x=10, y=455)
 J9CalDirLab = Label(tab3, font=("Arial", 8), text = "J9 Calibration Dir.")
 J9CalDirLab.place(x=10, y=480)
 
-J1CalDirEntryField = Entry(tab3,width=8,justify="center")
+J1CalDirEntryField = Entry(tab3,width=5,justify="center")
 J1CalDirEntryField.place(x=110, y=280)
-J2CalDirEntryField = Entry(tab3,width=8,justify="center")
+J2CalDirEntryField = Entry(tab3,width=5,justify="center")
 J2CalDirEntryField.place(x=110, y=305)
-J3CalDirEntryField = Entry(tab3,width=8,justify="center")
+J3CalDirEntryField = Entry(tab3,width=5,justify="center")
 J3CalDirEntryField.place(x=110, y=330)
-J4CalDirEntryField = Entry(tab3,width=8,justify="center")
+J4CalDirEntryField = Entry(tab3,width=5,justify="center")
 J4CalDirEntryField.place(x=110, y=355)
-J5CalDirEntryField = Entry(tab3,width=8,justify="center")
+J5CalDirEntryField = Entry(tab3,width=5,justify="center")
 J5CalDirEntryField.place(x=110, y=380)
-J6CalDirEntryField = Entry(tab3,width=8,justify="center")
+J6CalDirEntryField = Entry(tab3,width=5,justify="center")
 J6CalDirEntryField.place(x=110, y=405)
-J7CalDirEntryField = Entry(tab3,width=8,justify="center")
+J7CalDirEntryField = Entry(tab3,width=5,justify="center")
 J7CalDirEntryField.place(x=110, y=430)
-J8CalDirEntryField = Entry(tab3,width=8,justify="center")
+J8CalDirEntryField = Entry(tab3,width=5,justify="center")
 J8CalDirEntryField.place(x=110, y=455)
-J9CalDirEntryField = Entry(tab3,width=8,justify="center")
+J9CalDirEntryField = Entry(tab3,width=5,justify="center")
 J9CalDirEntryField.place(x=110, y=480)
 
 ### axis limits
@@ -12393,29 +12740,29 @@ J6PosLimLab.place(x=200, y=270)
 J6NegLimLab = Label(tab3, font=("Arial", 8), text = "J6 Neg Limit")
 J6NegLimLab.place(x=200, y=295)
 
-J1PosLimEntryField = Entry(tab3,width=8,justify="center")
+J1PosLimEntryField = Entry(tab3,width=5,justify="center")
 J1PosLimEntryField.place(x=280, y=20)
-J1NegLimEntryField = Entry(tab3,width=8,justify="center")
+J1NegLimEntryField = Entry(tab3,width=5,justify="center")
 J1NegLimEntryField.place(x=280, y=45)
-J2PosLimEntryField = Entry(tab3,width=8,justify="center")
+J2PosLimEntryField = Entry(tab3,width=5,justify="center")
 J2PosLimEntryField.place(x=280, y=70)
-J2NegLimEntryField = Entry(tab3,width=8,justify="center")
+J2NegLimEntryField = Entry(tab3,width=5,justify="center")
 J2NegLimEntryField.place(x=280, y=95)
-J3PosLimEntryField = Entry(tab3,width=8,justify="center")
+J3PosLimEntryField = Entry(tab3,width=5,justify="center")
 J3PosLimEntryField.place(x=280, y=120)
-J3NegLimEntryField = Entry(tab3,width=8,justify="center")
+J3NegLimEntryField = Entry(tab3,width=5,justify="center")
 J3NegLimEntryField.place(x=280, y=145)
-J4PosLimEntryField = Entry(tab3,width=8,justify="center")
+J4PosLimEntryField = Entry(tab3,width=5,justify="center")
 J4PosLimEntryField.place(x=280, y=170)
-J4NegLimEntryField = Entry(tab3,width=8,justify="center")
+J4NegLimEntryField = Entry(tab3,width=5,justify="center")
 J4NegLimEntryField.place(x=280, y=195)
-J5PosLimEntryField = Entry(tab3,width=8,justify="center")
+J5PosLimEntryField = Entry(tab3,width=5,justify="center")
 J5PosLimEntryField.place(x=280, y=220)
-J5NegLimEntryField = Entry(tab3,width=8,justify="center")
+J5NegLimEntryField = Entry(tab3,width=5,justify="center")
 J5NegLimEntryField.place(x=280, y=245)
-J6PosLimEntryField = Entry(tab3,width=8,justify="center")
+J6PosLimEntryField = Entry(tab3,width=5,justify="center")
 J6PosLimEntryField.place(x=280, y=270)
-J6NegLimEntryField = Entry(tab3,width=8,justify="center")
+J6NegLimEntryField = Entry(tab3,width=5,justify="center")
 J6NegLimEntryField.place(x=280, y=295)
 
 
@@ -12433,17 +12780,17 @@ J5StepDegLab.place(x=200, y=445)
 J6StepDegLab = Label(tab3, font=("Arial", 8), text = "J6 Step/Deg")
 J6StepDegLab.place(x=200, y=470)
 
-J1StepDegEntryField = Entry(tab3,width=8,justify="center")
+J1StepDegEntryField = Entry(tab3,width=5,justify="center")
 J1StepDegEntryField.place(x=280, y=345)
-J2StepDegEntryField = Entry(tab3,width=8,justify="center")
+J2StepDegEntryField = Entry(tab3,width=5,justify="center")
 J2StepDegEntryField.place(x=280, y=370)
-J3StepDegEntryField = Entry(tab3,width=8,justify="center")
+J3StepDegEntryField = Entry(tab3,width=5,justify="center")
 J3StepDegEntryField.place(x=280, y=395)
-J4StepDegEntryField = Entry(tab3,width=8,justify="center")
+J4StepDegEntryField = Entry(tab3,width=5,justify="center")
 J4StepDegEntryField.place(x=280, y=420)
-J5StepDegEntryField = Entry(tab3,width=8,justify="center")
+J5StepDegEntryField = Entry(tab3,width=5,justify="center")
 J5StepDegEntryField.place(x=280, y=445)
-J6StepDegEntryField = Entry(tab3,width=8,justify="center")
+J6StepDegEntryField = Entry(tab3,width=5,justify="center")
 J6StepDegEntryField.place(x=280, y=470)
 
 
@@ -12461,17 +12808,17 @@ J5DriveMSLab.place(x=390, y=120)
 J6DriveMSLab = Label(tab3, font=("Arial", 8), text = "J6 Drive Microstep")
 J6DriveMSLab.place(x=390, y=145)
 
-J1DriveMSEntryField = Entry(tab3,width=8,justify="center")
+J1DriveMSEntryField = Entry(tab3,width=5,justify="center")
 J1DriveMSEntryField.place(x=500, y=20)
-J2DriveMSEntryField = Entry(tab3,width=8,justify="center")
+J2DriveMSEntryField = Entry(tab3,width=5,justify="center")
 J2DriveMSEntryField.place(x=500, y=45)
-J3DriveMSEntryField = Entry(tab3,width=8,justify="center")
+J3DriveMSEntryField = Entry(tab3,width=5,justify="center")
 J3DriveMSEntryField.place(x=500, y=70)
-J4DriveMSEntryField = Entry(tab3,width=8,justify="center")
+J4DriveMSEntryField = Entry(tab3,width=5,justify="center")
 J4DriveMSEntryField.place(x=500, y=95)
-J5DriveMSEntryField = Entry(tab3,width=8,justify="center")
+J5DriveMSEntryField = Entry(tab3,width=5,justify="center")
 J5DriveMSEntryField.place(x=500, y=120)
-J6DriveMSEntryField = Entry(tab3,width=8,justify="center")
+J6DriveMSEntryField = Entry(tab3,width=5,justify="center")
 J6DriveMSEntryField.place(x=500, y=145)
 
 
@@ -12489,17 +12836,17 @@ J5EncCPRLab.place(x=390, y=295)
 J6EncCPRLab = Label(tab3, font=("Arial", 8), text = "J6 Encoder CPR")
 J6EncCPRLab.place(x=390, y=320)
 
-J1EncCPREntryField = Entry(tab3,width=8,justify="center")
+J1EncCPREntryField = Entry(tab3,width=5,justify="center")
 J1EncCPREntryField.place(x=500, y=195)
-J2EncCPREntryField = Entry(tab3,width=8,justify="center")
+J2EncCPREntryField = Entry(tab3,width=5,justify="center")
 J2EncCPREntryField.place(x=500, y=220)
-J3EncCPREntryField = Entry(tab3,width=8,justify="center")
+J3EncCPREntryField = Entry(tab3,width=5,justify="center")
 J3EncCPREntryField.place(x=500, y=245)
-J4EncCPREntryField = Entry(tab3,width=8,justify="center")
+J4EncCPREntryField = Entry(tab3,width=5,justify="center")
 J4EncCPREntryField.place(x=500, y=270)
-J5EncCPREntryField = Entry(tab3,width=8,justify="center")
+J5EncCPREntryField = Entry(tab3,width=5,justify="center")
 J5EncCPREntryField.place(x=500, y=295)
-J6EncCPREntryField = Entry(tab3,width=8,justify="center")
+J6EncCPREntryField = Entry(tab3,width=5,justify="center")
 J6EncCPREntryField.place(x=500, y=320)
 
 
@@ -12529,56 +12876,56 @@ aDHparamLab = Label(tab3, font=("Arial", 8), text = "DH-a")
 aDHparamLab.place(x=810, y=20)
 
 
-J1ΘEntryField = Entry(tab3,width=8,justify="center")
+J1ΘEntryField = Entry(tab3,width=5,justify="center")
 J1ΘEntryField.place(x=630, y=45)
-J2ΘEntryField = Entry(tab3,width=8,justify="center")
+J2ΘEntryField = Entry(tab3,width=5,justify="center")
 J2ΘEntryField.place(x=630, y=70)
-J3ΘEntryField = Entry(tab3,width=8,justify="center")
+J3ΘEntryField = Entry(tab3,width=5,justify="center")
 J3ΘEntryField.place(x=630, y=95)
-J4ΘEntryField = Entry(tab3,width=8,justify="center")
+J4ΘEntryField = Entry(tab3,width=5,justify="center")
 J4ΘEntryField.place(x=630, y=120)
-J5ΘEntryField = Entry(tab3,width=8,justify="center")
+J5ΘEntryField = Entry(tab3,width=5,justify="center")
 J5ΘEntryField.place(x=630, y=145)
-J6ΘEntryField = Entry(tab3,width=8,justify="center")
+J6ΘEntryField = Entry(tab3,width=5,justify="center")
 J6ΘEntryField.place(x=630, y=170)
 
-J1αEntryField = Entry(tab3,width=8,justify="center")
+J1αEntryField = Entry(tab3,width=5,justify="center")
 J1αEntryField.place(x=685, y=45)
-J2αEntryField = Entry(tab3,width=8,justify="center")
+J2αEntryField = Entry(tab3,width=5,justify="center")
 J2αEntryField.place(x=685, y=70)
-J3αEntryField = Entry(tab3,width=8,justify="center")
+J3αEntryField = Entry(tab3,width=5,justify="center")
 J3αEntryField.place(x=685, y=95)
-J4αEntryField = Entry(tab3,width=8,justify="center")
+J4αEntryField = Entry(tab3,width=5,justify="center")
 J4αEntryField.place(x=685, y=120)
-J5αEntryField = Entry(tab3,width=8,justify="center")
+J5αEntryField = Entry(tab3,width=5,justify="center")
 J5αEntryField.place(x=685, y=145)
-J6αEntryField = Entry(tab3,width=8,justify="center")
+J6αEntryField = Entry(tab3,width=5,justify="center")
 J6αEntryField.place(x=685, y=170)
 
-J1dEntryField = Entry(tab3,width=8,justify="center")
+J1dEntryField = Entry(tab3,width=5,justify="center")
 J1dEntryField.place(x=740, y=45)
-J2dEntryField = Entry(tab3,width=8,justify="center")
+J2dEntryField = Entry(tab3,width=5,justify="center")
 J2dEntryField.place(x=740, y=70)
-J3dEntryField = Entry(tab3,width=8,justify="center")
+J3dEntryField = Entry(tab3,width=5,justify="center")
 J3dEntryField.place(x=740, y=95)
-J4dEntryField = Entry(tab3,width=8,justify="center")
+J4dEntryField = Entry(tab3,width=5,justify="center")
 J4dEntryField.place(x=740, y=120)
-J5dEntryField = Entry(tab3,width=8,justify="center")
+J5dEntryField = Entry(tab3,width=5,justify="center")
 J5dEntryField.place(x=740, y=145)
-J6dEntryField = Entry(tab3,width=8,justify="center")
+J6dEntryField = Entry(tab3,width=5,justify="center")
 J6dEntryField.place(x=740, y=170)
 
-J1aEntryField = Entry(tab3,width=8,justify="center")
+J1aEntryField = Entry(tab3,width=5,justify="center")
 J1aEntryField.place(x=795, y=45)
-J2aEntryField = Entry(tab3,width=8,justify="center")
+J2aEntryField = Entry(tab3,width=5,justify="center")
 J2aEntryField.place(x=795, y=70)
-J3aEntryField = Entry(tab3,width=8,justify="center")
+J3aEntryField = Entry(tab3,width=5,justify="center")
 J3aEntryField.place(x=795, y=95)
-J4aEntryField = Entry(tab3,width=8,justify="center")
+J4aEntryField = Entry(tab3,width=5,justify="center")
 J4aEntryField.place(x=795, y=120)
-J5aEntryField = Entry(tab3,width=8,justify="center")
+J5aEntryField = Entry(tab3,width=5,justify="center")
 J5aEntryField.place(x=795, y=145)
-J6aEntryField = Entry(tab3,width=8,justify="center")
+J6aEntryField = Entry(tab3,width=5,justify="center")
 J6aEntryField.place(x=795, y=170)
 
 
@@ -12826,69 +13173,69 @@ MBwriteRegBut.place(x=665, y=360)
 #############################################################################
 
 
-servo0onEntryField = Entry(tab4,width=5,justify="center")
+servo0onEntryField = Entry(tab4,width=4,justify="center")
 servo0onEntryField.place(x=90, y=45)
 
-servo0offEntryField = Entry(tab4,width=5,justify="center")
+servo0offEntryField = Entry(tab4,width=4,justify="center")
 servo0offEntryField.place(x=90, y=85)
 
-servo1onEntryField = Entry(tab4,width=5,justify="center")
+servo1onEntryField = Entry(tab4,width=4,justify="center")
 servo1onEntryField.place(x=90, y=125)
 
-servo1offEntryField = Entry(tab4,width=5,justify="center")
+servo1offEntryField = Entry(tab4,width=4,justify="center")
 servo1offEntryField.place(x=90, y=165)
 
-servo2onEntryField = Entry(tab4,width=5,justify="center")
+servo2onEntryField = Entry(tab4,width=4,justify="center")
 servo2onEntryField.place(x=90, y=205)
 
-servo2offEntryField = Entry(tab4,width=5,justify="center")
+servo2offEntryField = Entry(tab4,width=4,justify="center")
 servo2offEntryField.place(x=90, y=245)
 
 
-servo3onEntryField = Entry(tab4,width=5,justify="center")
+servo3onEntryField = Entry(tab4,width=4,justify="center")
 servo3onEntryField.place(x=90, y=285)
 
-servo3offEntryField = Entry(tab4,width=5,justify="center")
+servo3offEntryField = Entry(tab4,width=4,justify="center")
 servo3offEntryField.place(x=90, y=325)
 
 
 
 
 
-DO1onEntryField = Entry(tab4,width=5,justify="center")
+DO1onEntryField = Entry(tab4,width=4,justify="center")
 DO1onEntryField.place(x=230, y=45)
 
-DO1offEntryField = Entry(tab4,width=5,justify="center")
+DO1offEntryField = Entry(tab4,width=4,justify="center")
 DO1offEntryField.place(x=230, y=85)
 
-DO2onEntryField = Entry(tab4,width=5,justify="center")
+DO2onEntryField = Entry(tab4,width=4,justify="center")
 DO2onEntryField.place(x=230, y=125)
 
-DO2offEntryField = Entry(tab4,width=5,justify="center")
+DO2offEntryField = Entry(tab4,width=4,justify="center")
 DO2offEntryField.place(x=230, y=165)
 
-DO3onEntryField = Entry(tab4,width=5,justify="center")
+DO3onEntryField = Entry(tab4,width=4,justify="center")
 DO3onEntryField.place(x=230, y=205)
 
-DO3offEntryField = Entry(tab4,width=5,justify="center")
+DO3offEntryField = Entry(tab4,width=4,justify="center")
 DO3offEntryField.place(x=230, y=245)
 
-DO4onEntryField = Entry(tab4,width=5,justify="center")
+DO4onEntryField = Entry(tab4,width=4,justify="center")
 DO4onEntryField.place(x=230, y=285)
 
-DO4offEntryField = Entry(tab4,width=5,justify="center")
+DO4offEntryField = Entry(tab4,width=4,justify="center")
 DO4offEntryField.place(x=230, y=325)
 
-DO5onEntryField = Entry(tab4,width=5,justify="center")
+DO5onEntryField = Entry(tab4,width=4,justify="center")
 DO5onEntryField.place(x=230, y=365)
 
-DO5offEntryField = Entry(tab4,width=5,justify="center")
+DO5offEntryField = Entry(tab4,width=4,justify="center")
 DO5offEntryField.place(x=230, y=405)
 
-DO6onEntryField = Entry(tab4,width=5,justify="center")
+DO6onEntryField = Entry(tab4,width=4,justify="center")
 DO6onEntryField.place(x=230, y=445)
 
-DO6offEntryField = Entry(tab4,width=5,justify="center")
+DO6offEntryField = Entry(tab4,width=4,justify="center")
 DO6offEntryField.place(x=230, y=485)
 
 
@@ -12906,10 +13253,10 @@ com3outPortEntryField.place(x=385, y=160)
 MBslaveEntryField = Entry(tab4,width=4,justify="center")
 MBslaveEntryField.place(x=710, y=40)
 
-MBaddressEntryField = Entry(tab4,width=8,justify="center")
+MBaddressEntryField = Entry(tab4,width=5,justify="center")
 MBaddressEntryField.place(x=690, y=80)
 
-MBoperValEntryField = Entry(tab4,width=8,justify="center")
+MBoperValEntryField = Entry(tab4,width=5,justify="center")
 MBoperValEntryField.place(x=690, y=120)
 
 MBoutputEntryField = Entry(tab4,width=33,justify="center")
@@ -13055,356 +13402,356 @@ SP_E6_Lab.place(x=610, y=10)
 #### 5 ENTRY FIELDS##########################################################
 #############################################################################
 
-R1EntryField = Entry(tab5,width=5,justify="center")
+R1EntryField = Entry(tab5,width=4,justify="center")
 R1EntryField.place(x=30, y=30)
 
-R2EntryField = Entry(tab5,width=5,justify="center")
+R2EntryField = Entry(tab5,width=4,justify="center")
 R2EntryField.place(x=30, y=60)
 
-R3EntryField = Entry(tab5,width=5,justify="center")
+R3EntryField = Entry(tab5,width=4,justify="center")
 R3EntryField.place(x=30, y=90)
 
-R4EntryField = Entry(tab5,width=5,justify="center")
+R4EntryField = Entry(tab5,width=4,justify="center")
 R4EntryField.place(x=30, y=120)
 
-R5EntryField = Entry(tab5,width=5,justify="center")
+R5EntryField = Entry(tab5,width=4,justify="center")
 R5EntryField.place(x=30, y=150)
 
-R6EntryField = Entry(tab5,width=5,justify="center")
+R6EntryField = Entry(tab5,width=4,justify="center")
 R6EntryField.place(x=30, y=180)
 
-R7EntryField = Entry(tab5,width=5,justify="center")
+R7EntryField = Entry(tab5,width=4,justify="center")
 R7EntryField.place(x=30, y=210)
 
-R8EntryField = Entry(tab5,width=5,justify="center")
+R8EntryField = Entry(tab5,width=4,justify="center")
 R8EntryField.place(x=30, y=240)
 
-R9EntryField = Entry(tab5,width=5,justify="center")
+R9EntryField = Entry(tab5,width=4,justify="center")
 R9EntryField.place(x=30, y=270)
 
-R10EntryField = Entry(tab5,width=5,justify="center")
+R10EntryField = Entry(tab5,width=4,justify="center")
 R10EntryField.place(x=30, y=300)
 
-R11EntryField = Entry(tab5,width=5,justify="center")
+R11EntryField = Entry(tab5,width=4,justify="center")
 R11EntryField.place(x=30, y=330)
 
-R12EntryField = Entry(tab5,width=5,justify="center")
+R12EntryField = Entry(tab5,width=4,justify="center")
 R12EntryField.place(x=30, y=360)
 
-R13EntryField = Entry(tab5,width=5,justify="center")
+R13EntryField = Entry(tab5,width=4,justify="center")
 R13EntryField.place(x=30, y=390)
 
-R14EntryField = Entry(tab5,width=5,justify="center")
+R14EntryField = Entry(tab5,width=4,justify="center")
 R14EntryField.place(x=30, y=420)
 
-R15EntryField = Entry(tab5,width=5,justify="center")
+R15EntryField = Entry(tab5,width=4,justify="center")
 R15EntryField.place(x=30, y=450)
 
-R16EntryField = Entry(tab5,width=5,justify="center")
+R16EntryField = Entry(tab5,width=4,justify="center")
 R16EntryField.place(x=30, y=480)
 
 
 
 
-SP_1_E1_EntryField = Entry(tab5,width=5,justify="center")
+SP_1_E1_EntryField = Entry(tab5,width=4,justify="center")
 SP_1_E1_EntryField.place(x=400, y=30)
 
-SP_2_E1_EntryField = Entry(tab5,width=5,justify="center")
+SP_2_E1_EntryField = Entry(tab5,width=4,justify="center")
 SP_2_E1_EntryField.place(x=400, y=60)
 
-SP_3_E1_EntryField = Entry(tab5,width=5,justify="center")
+SP_3_E1_EntryField = Entry(tab5,width=4,justify="center")
 SP_3_E1_EntryField.place(x=400, y=90)
 
-SP_4_E1_EntryField = Entry(tab5,width=5,justify="center")
+SP_4_E1_EntryField = Entry(tab5,width=4,justify="center")
 SP_4_E1_EntryField.place(x=400, y=120)
 
-SP_5_E1_EntryField = Entry(tab5,width=5,justify="center")
+SP_5_E1_EntryField = Entry(tab5,width=4,justify="center")
 SP_5_E1_EntryField.place(x=400, y=150)
 
-SP_6_E1_EntryField = Entry(tab5,width=5,justify="center")
+SP_6_E1_EntryField = Entry(tab5,width=4,justify="center")
 SP_6_E1_EntryField.place(x=400, y=180)
 
-SP_7_E1_EntryField = Entry(tab5,width=5,justify="center")
+SP_7_E1_EntryField = Entry(tab5,width=4,justify="center")
 SP_7_E1_EntryField.place(x=400, y=210)
 
-SP_8_E1_EntryField = Entry(tab5,width=5,justify="center")
+SP_8_E1_EntryField = Entry(tab5,width=4,justify="center")
 SP_8_E1_EntryField.place(x=400, y=240)
 
-SP_9_E1_EntryField = Entry(tab5,width=5,justify="center")
+SP_9_E1_EntryField = Entry(tab5,width=4,justify="center")
 SP_9_E1_EntryField.place(x=400, y=270)
 
-SP_10_E1_EntryField = Entry(tab5,width=5,justify="center")
+SP_10_E1_EntryField = Entry(tab5,width=4,justify="center")
 SP_10_E1_EntryField.place(x=400, y=300)
 
-SP_11_E1_EntryField = Entry(tab5,width=5,justify="center")
+SP_11_E1_EntryField = Entry(tab5,width=4,justify="center")
 SP_11_E1_EntryField.place(x=400, y=330)
 
-SP_12_E1_EntryField = Entry(tab5,width=5,justify="center")
+SP_12_E1_EntryField = Entry(tab5,width=4,justify="center")
 SP_12_E1_EntryField.place(x=400, y=360)
 
-SP_13_E1_EntryField = Entry(tab5,width=5,justify="center")
+SP_13_E1_EntryField = Entry(tab5,width=4,justify="center")
 SP_13_E1_EntryField.place(x=400, y=390)
 
-SP_14_E1_EntryField = Entry(tab5,width=5,justify="center")
+SP_14_E1_EntryField = Entry(tab5,width=4,justify="center")
 SP_14_E1_EntryField.place(x=400, y=420)
 
-SP_15_E1_EntryField = Entry(tab5,width=5,justify="center")
+SP_15_E1_EntryField = Entry(tab5,width=4,justify="center")
 SP_15_E1_EntryField.place(x=400, y=450)
 
-SP_16_E1_EntryField = Entry(tab5,width=5,justify="center")
+SP_16_E1_EntryField = Entry(tab5,width=4,justify="center")
 SP_16_E1_EntryField.place(x=400, y=480)
 
 
 
 
 
-SP_1_E2_EntryField = Entry(tab5,width=5,justify="center")
+SP_1_E2_EntryField = Entry(tab5,width=4,justify="center")
 SP_1_E2_EntryField.place(x=440, y=30)
 
-SP_2_E2_EntryField = Entry(tab5,width=5,justify="center")
+SP_2_E2_EntryField = Entry(tab5,width=4,justify="center")
 SP_2_E2_EntryField.place(x=440, y=60)
 
-SP_3_E2_EntryField = Entry(tab5,width=5,justify="center")
+SP_3_E2_EntryField = Entry(tab5,width=4,justify="center")
 SP_3_E2_EntryField.place(x=440, y=90)
 
-SP_4_E2_EntryField = Entry(tab5,width=5,justify="center")
+SP_4_E2_EntryField = Entry(tab5,width=4,justify="center")
 SP_4_E2_EntryField.place(x=440, y=120)
 
-SP_5_E2_EntryField = Entry(tab5,width=5,justify="center")
+SP_5_E2_EntryField = Entry(tab5,width=4,justify="center")
 SP_5_E2_EntryField.place(x=440, y=150)
 
-SP_6_E2_EntryField = Entry(tab5,width=5,justify="center")
+SP_6_E2_EntryField = Entry(tab5,width=4,justify="center")
 SP_6_E2_EntryField.place(x=440, y=180)
 
-SP_7_E2_EntryField = Entry(tab5,width=5,justify="center")
+SP_7_E2_EntryField = Entry(tab5,width=4,justify="center")
 SP_7_E2_EntryField.place(x=440, y=210)
 
-SP_8_E2_EntryField = Entry(tab5,width=5,justify="center")
+SP_8_E2_EntryField = Entry(tab5,width=4,justify="center")
 SP_8_E2_EntryField.place(x=440, y=240)
 
-SP_9_E2_EntryField = Entry(tab5,width=5,justify="center")
+SP_9_E2_EntryField = Entry(tab5,width=4,justify="center")
 SP_9_E2_EntryField.place(x=440, y=270)
 
-SP_10_E2_EntryField = Entry(tab5,width=5,justify="center")
+SP_10_E2_EntryField = Entry(tab5,width=4,justify="center")
 SP_10_E2_EntryField.place(x=440, y=300)
 
-SP_11_E2_EntryField = Entry(tab5,width=5,justify="center")
+SP_11_E2_EntryField = Entry(tab5,width=4,justify="center")
 SP_11_E2_EntryField.place(x=440, y=330)
 
-SP_12_E2_EntryField = Entry(tab5,width=5,justify="center")
+SP_12_E2_EntryField = Entry(tab5,width=4,justify="center")
 SP_12_E2_EntryField.place(x=440, y=360)
 
-SP_13_E2_EntryField = Entry(tab5,width=5,justify="center")
+SP_13_E2_EntryField = Entry(tab5,width=4,justify="center")
 SP_13_E2_EntryField.place(x=440, y=390)
 
-SP_14_E2_EntryField = Entry(tab5,width=5,justify="center")
+SP_14_E2_EntryField = Entry(tab5,width=4,justify="center")
 SP_14_E2_EntryField.place(x=440, y=420)
 
-SP_15_E2_EntryField = Entry(tab5,width=5,justify="center")
+SP_15_E2_EntryField = Entry(tab5,width=4,justify="center")
 SP_15_E2_EntryField.place(x=440, y=450)
 
-SP_16_E2_EntryField = Entry(tab5,width=5,justify="center")
+SP_16_E2_EntryField = Entry(tab5,width=4,justify="center")
 SP_16_E2_EntryField.place(x=440, y=480)
 
 
 
 
-SP_1_E3_EntryField = Entry(tab5,width=5,justify="center")
+SP_1_E3_EntryField = Entry(tab5,width=4,justify="center")
 SP_1_E3_EntryField.place(x=480, y=30)
 
-SP_2_E3_EntryField = Entry(tab5,width=5,justify="center")
+SP_2_E3_EntryField = Entry(tab5,width=4,justify="center")
 SP_2_E3_EntryField.place(x=480, y=60)
 
-SP_3_E3_EntryField = Entry(tab5,width=5,justify="center")
+SP_3_E3_EntryField = Entry(tab5,width=4,justify="center")
 SP_3_E3_EntryField.place(x=480, y=90)
 
-SP_4_E3_EntryField = Entry(tab5,width=5,justify="center")
+SP_4_E3_EntryField = Entry(tab5,width=4,justify="center")
 SP_4_E3_EntryField.place(x=480, y=120)
 
-SP_5_E3_EntryField = Entry(tab5,width=5,justify="center")
+SP_5_E3_EntryField = Entry(tab5,width=4,justify="center")
 SP_5_E3_EntryField.place(x=480, y=150)
 
-SP_6_E3_EntryField = Entry(tab5,width=5,justify="center")
+SP_6_E3_EntryField = Entry(tab5,width=4,justify="center")
 SP_6_E3_EntryField.place(x=480, y=180)
 
-SP_7_E3_EntryField = Entry(tab5,width=5,justify="center")
+SP_7_E3_EntryField = Entry(tab5,width=4,justify="center")
 SP_7_E3_EntryField.place(x=480, y=210)
 
-SP_8_E3_EntryField = Entry(tab5,width=5,justify="center")
+SP_8_E3_EntryField = Entry(tab5,width=4,justify="center")
 SP_8_E3_EntryField.place(x=480, y=240)
 
-SP_9_E3_EntryField = Entry(tab5,width=5,justify="center")
+SP_9_E3_EntryField = Entry(tab5,width=4,justify="center")
 SP_9_E3_EntryField.place(x=480, y=270)
 
-SP_10_E3_EntryField = Entry(tab5,width=5,justify="center")
+SP_10_E3_EntryField = Entry(tab5,width=4,justify="center")
 SP_10_E3_EntryField.place(x=480, y=300)
 
-SP_11_E3_EntryField = Entry(tab5,width=5,justify="center")
+SP_11_E3_EntryField = Entry(tab5,width=4,justify="center")
 SP_11_E3_EntryField.place(x=480, y=330)
 
-SP_12_E3_EntryField = Entry(tab5,width=5,justify="center")
+SP_12_E3_EntryField = Entry(tab5,width=4,justify="center")
 SP_12_E3_EntryField.place(x=480, y=360)
 
-SP_13_E3_EntryField = Entry(tab5,width=5,justify="center")
+SP_13_E3_EntryField = Entry(tab5,width=4,justify="center")
 SP_13_E3_EntryField.place(x=480, y=390)
 
-SP_14_E3_EntryField = Entry(tab5,width=5,justify="center")
+SP_14_E3_EntryField = Entry(tab5,width=4,justify="center")
 SP_14_E3_EntryField.place(x=480, y=420)
 
-SP_15_E3_EntryField = Entry(tab5,width=5,justify="center")
+SP_15_E3_EntryField = Entry(tab5,width=4,justify="center")
 SP_15_E3_EntryField.place(x=480, y=450)
 
-SP_16_E3_EntryField = Entry(tab5,width=5,justify="center")
+SP_16_E3_EntryField = Entry(tab5,width=4,justify="center")
 SP_16_E3_EntryField.place(x=480, y=480)
 
 
 
 
-SP_1_E4_EntryField = Entry(tab5,width=5,justify="center")
+SP_1_E4_EntryField = Entry(tab5,width=4,justify="center")
 SP_1_E4_EntryField.place(x=520, y=30)
 
-SP_2_E4_EntryField = Entry(tab5,width=5,justify="center")
+SP_2_E4_EntryField = Entry(tab5,width=4,justify="center")
 SP_2_E4_EntryField.place(x=520, y=60)
 
-SP_3_E4_EntryField = Entry(tab5,width=5,justify="center")
+SP_3_E4_EntryField = Entry(tab5,width=4,justify="center")
 SP_3_E4_EntryField.place(x=520, y=90)
 
-SP_4_E4_EntryField = Entry(tab5,width=5,justify="center")
+SP_4_E4_EntryField = Entry(tab5,width=4,justify="center")
 SP_4_E4_EntryField.place(x=520, y=120)
 
-SP_5_E4_EntryField = Entry(tab5,width=5,justify="center")
+SP_5_E4_EntryField = Entry(tab5,width=4,justify="center")
 SP_5_E4_EntryField.place(x=520, y=150)
 
-SP_6_E4_EntryField = Entry(tab5,width=5,justify="center")
+SP_6_E4_EntryField = Entry(tab5,width=4,justify="center")
 SP_6_E4_EntryField.place(x=520, y=180)
 
-SP_7_E4_EntryField = Entry(tab5,width=5,justify="center")
+SP_7_E4_EntryField = Entry(tab5,width=4,justify="center")
 SP_7_E4_EntryField.place(x=520, y=210)
 
-SP_8_E4_EntryField = Entry(tab5,width=5,justify="center")
+SP_8_E4_EntryField = Entry(tab5,width=4,justify="center")
 SP_8_E4_EntryField.place(x=520, y=240)
 
-SP_9_E4_EntryField = Entry(tab5,width=5,justify="center")
+SP_9_E4_EntryField = Entry(tab5,width=4,justify="center")
 SP_9_E4_EntryField.place(x=520, y=270)
 
-SP_10_E4_EntryField = Entry(tab5,width=5,justify="center")
+SP_10_E4_EntryField = Entry(tab5,width=4,justify="center")
 SP_10_E4_EntryField.place(x=520, y=300)
 
-SP_11_E4_EntryField = Entry(tab5,width=5,justify="center")
+SP_11_E4_EntryField = Entry(tab5,width=4,justify="center")
 SP_11_E4_EntryField.place(x=520, y=330)
 
-SP_12_E4_EntryField = Entry(tab5,width=5,justify="center")
+SP_12_E4_EntryField = Entry(tab5,width=4,justify="center")
 SP_12_E4_EntryField.place(x=520, y=360)
 
-SP_13_E4_EntryField = Entry(tab5,width=5,justify="center")
+SP_13_E4_EntryField = Entry(tab5,width=4,justify="center")
 SP_13_E4_EntryField.place(x=520, y=390)
 
-SP_14_E4_EntryField = Entry(tab5,width=5,justify="center")
+SP_14_E4_EntryField = Entry(tab5,width=4,justify="center")
 SP_14_E4_EntryField.place(x=520, y=420)
 
-SP_15_E4_EntryField = Entry(tab5,width=5,justify="center")
+SP_15_E4_EntryField = Entry(tab5,width=4,justify="center")
 SP_15_E4_EntryField.place(x=520, y=450)
 
-SP_16_E4_EntryField = Entry(tab5,width=5,justify="center")
+SP_16_E4_EntryField = Entry(tab5,width=4,justify="center")
 SP_16_E4_EntryField.place(x=520, y=480)
 
-SP_1_E5_EntryField = Entry(tab5,width=5,justify="center")
+SP_1_E5_EntryField = Entry(tab5,width=4,justify="center")
 SP_1_E5_EntryField.place(x=560, y=30)
 
-SP_2_E5_EntryField = Entry(tab5,width=5,justify="center")
+SP_2_E5_EntryField = Entry(tab5,width=4,justify="center")
 SP_2_E5_EntryField.place(x=560, y=60)
 
-SP_3_E5_EntryField = Entry(tab5,width=5,justify="center")
+SP_3_E5_EntryField = Entry(tab5,width=4,justify="center")
 SP_3_E5_EntryField.place(x=560, y=90)
 
-SP_4_E5_EntryField = Entry(tab5,width=5,justify="center")
+SP_4_E5_EntryField = Entry(tab5,width=4,justify="center")
 SP_4_E5_EntryField.place(x=560, y=120)
 
-SP_5_E5_EntryField = Entry(tab5,width=5,justify="center")
+SP_5_E5_EntryField = Entry(tab5,width=4,justify="center")
 SP_5_E5_EntryField.place(x=560, y=150)
 
-SP_6_E5_EntryField = Entry(tab5,width=5,justify="center")
+SP_6_E5_EntryField = Entry(tab5,width=4,justify="center")
 SP_6_E5_EntryField.place(x=560, y=180)
 
-SP_7_E5_EntryField = Entry(tab5,width=5,justify="center")
+SP_7_E5_EntryField = Entry(tab5,width=4,justify="center")
 SP_7_E5_EntryField.place(x=560, y=210)
 
-SP_8_E5_EntryField = Entry(tab5,width=5,justify="center")
+SP_8_E5_EntryField = Entry(tab5,width=4,justify="center")
 SP_8_E5_EntryField.place(x=560, y=240)
 
-SP_9_E5_EntryField = Entry(tab5,width=5,justify="center")
+SP_9_E5_EntryField = Entry(tab5,width=4,justify="center")
 SP_9_E5_EntryField.place(x=560, y=270)
 
-SP_10_E5_EntryField = Entry(tab5,width=5,justify="center")
+SP_10_E5_EntryField = Entry(tab5,width=4,justify="center")
 SP_10_E5_EntryField.place(x=560, y=300)
 
-SP_11_E5_EntryField = Entry(tab5,width=5,justify="center")
+SP_11_E5_EntryField = Entry(tab5,width=4,justify="center")
 SP_11_E5_EntryField.place(x=560, y=330)
 
-SP_12_E5_EntryField = Entry(tab5,width=5,justify="center")
+SP_12_E5_EntryField = Entry(tab5,width=4,justify="center")
 SP_12_E5_EntryField.place(x=560, y=360)
 
-SP_13_E5_EntryField = Entry(tab5,width=5,justify="center")
+SP_13_E5_EntryField = Entry(tab5,width=4,justify="center")
 SP_13_E5_EntryField.place(x=560, y=390)
 
-SP_14_E5_EntryField = Entry(tab5,width=5,justify="center")
+SP_14_E5_EntryField = Entry(tab5,width=4,justify="center")
 SP_14_E5_EntryField.place(x=560, y=420)
 
-SP_15_E5_EntryField = Entry(tab5,width=5,justify="center")
+SP_15_E5_EntryField = Entry(tab5,width=4,justify="center")
 SP_15_E5_EntryField.place(x=560, y=450)
 
-SP_16_E5_EntryField = Entry(tab5,width=5,justify="center")
+SP_16_E5_EntryField = Entry(tab5,width=4,justify="center")
 SP_16_E5_EntryField.place(x=560, y=480)
 
 
 
 
-SP_1_E6_EntryField = Entry(tab5,width=5,justify="center")
+SP_1_E6_EntryField = Entry(tab5,width=4,justify="center")
 SP_1_E6_EntryField.place(x=600, y=30)
 
-SP_2_E6_EntryField = Entry(tab5,width=5,justify="center")
+SP_2_E6_EntryField = Entry(tab5,width=4,justify="center")
 SP_2_E6_EntryField.place(x=600, y=60)
 
-SP_3_E6_EntryField = Entry(tab5,width=5,justify="center")
+SP_3_E6_EntryField = Entry(tab5,width=4,justify="center")
 SP_3_E6_EntryField.place(x=600, y=90)
 
-SP_4_E6_EntryField = Entry(tab5,width=5,justify="center")
+SP_4_E6_EntryField = Entry(tab5,width=4,justify="center")
 SP_4_E6_EntryField.place(x=600, y=120)
 
-SP_5_E6_EntryField = Entry(tab5,width=5,justify="center")
+SP_5_E6_EntryField = Entry(tab5,width=4,justify="center")
 SP_5_E6_EntryField.place(x=600, y=150)
 
-SP_6_E6_EntryField = Entry(tab5,width=5,justify="center")
+SP_6_E6_EntryField = Entry(tab5,width=4,justify="center")
 SP_6_E6_EntryField.place(x=600, y=180)
 
-SP_7_E6_EntryField = Entry(tab5,width=5,justify="center")
+SP_7_E6_EntryField = Entry(tab5,width=4,justify="center")
 SP_7_E6_EntryField.place(x=600, y=210)
 
-SP_8_E6_EntryField = Entry(tab5,width=5,justify="center")
+SP_8_E6_EntryField = Entry(tab5,width=4,justify="center")
 SP_8_E6_EntryField.place(x=600, y=240)
 
-SP_9_E6_EntryField = Entry(tab5,width=5,justify="center")
+SP_9_E6_EntryField = Entry(tab5,width=4,justify="center")
 SP_9_E6_EntryField.place(x=600, y=270)
 
-SP_10_E6_EntryField = Entry(tab5,width=5,justify="center")
+SP_10_E6_EntryField = Entry(tab5,width=4,justify="center")
 SP_10_E6_EntryField.place(x=600, y=300)
 
-SP_11_E6_EntryField = Entry(tab5,width=5,justify="center")
+SP_11_E6_EntryField = Entry(tab5,width=4,justify="center")
 SP_11_E6_EntryField.place(x=600, y=330)
 
-SP_12_E6_EntryField = Entry(tab5,width=5,justify="center")
+SP_12_E6_EntryField = Entry(tab5,width=4,justify="center")
 SP_12_E6_EntryField.place(x=600, y=360)
 
-SP_13_E6_EntryField = Entry(tab5,width=5,justify="center")
+SP_13_E6_EntryField = Entry(tab5,width=4,justify="center")
 SP_13_E6_EntryField.place(x=600, y=390)
 
-SP_14_E6_EntryField = Entry(tab5,width=5,justify="center")
+SP_14_E6_EntryField = Entry(tab5,width=4,justify="center")
 SP_14_E6_EntryField.place(x=600, y=420)
 
-SP_15_E6_EntryField = Entry(tab5,width=5,justify="center")
+SP_15_E6_EntryField = Entry(tab5,width=4,justify="center")
 SP_15_E6_EntryField.place(x=600, y=450)
 
-SP_16_E6_EntryField = Entry(tab5,width=5,justify="center")
+SP_16_E6_EntryField = Entry(tab5,width=4,justify="center")
 SP_16_E6_EntryField.place(x=600, y=480)
 
 
@@ -13461,7 +13808,7 @@ live_lbl.place(x=0, y=0)
 
 
 
-template_frame = Frame(tab6,width=150,height=150)
+template_frame = Frame(tab6,width=120,height=150)
 template_frame.place(x=575, y=50)
 
 template_lbl = Label(template_frame)
@@ -13498,26 +13845,26 @@ except:
 
 
 
-StartCamBut = Button(tab6,  text="Start Camera",  width=15, command = start_vid)
+StartCamBut = Button(tab6,  text="Start Camera",  width=12, command = start_vid)
 StartCamBut.place(x=200, y=10)
 
-StopCamBut = Button(tab6,  text="Stop Camera",  width=15, command = stop_vid)
+StopCamBut = Button(tab6,  text="Stop Camera",  width=12, command = stop_vid)
 StopCamBut.place(x=315, y=10)
 
-CapImgBut = Button(tab6,  text="Snap Image",  width=15, command = take_pic)
+CapImgBut = Button(tab6,  text="Snap Image",  width=12, command = take_pic)
 CapImgBut.place(x=10, y=50)
 
-TeachImgBut = Button(tab6,  text="Teach Object",  width=15, command = selectTemplate)
+TeachImgBut = Button(tab6,  text="Teach Object",  width=12, command = selectTemplate)
 TeachImgBut.place(x=140, y=50)
 
-FindVisBut = Button(tab6,  text="Snap & Find",  width=15, command = snapFind)
+FindVisBut = Button(tab6,  text="Snap & Find",  width=12, command = snapFind)
 FindVisBut.place(x=270, y=50)
 
 
-ZeroBrCnBut = Button(tab6, text="Zero",  width=5, command = zeroBrCn)
+ZeroBrCnBut = Button(tab6, text="Zero",  width=4, command = zeroBrCn)
 ZeroBrCnBut.place(x=10, y=110)
 
-maskBut = Button(tab6, text="Mask",  width=5, command = selectMask)
+maskBut = Button(tab6, text="Mask",  width=4, command = selectMask)
 maskBut.place(x=10, y=150)
 
 
@@ -13574,7 +13921,7 @@ saveCalBut.place(x=915, y=340)
 
 
 
-VisBacColorEntryField = Entry(tab6,width=15,justify="center")
+VisBacColorEntryField = Entry(tab6,width=12,justify="center")
 VisBacColorEntryField.place(x=390, y=100)
 VisBacColorLab = Label(tab6, text = "Background Color")
 VisBacColorLab.place(x=390, y=120)
@@ -13582,7 +13929,7 @@ VisBacColorLab.place(x=390, y=120)
 bgAutoCbut = Checkbutton(tab6, command=checkAutoBG, text="Auto",variable = autoBG)
 bgAutoCbut.place(x=490, y=101)
 
-VisScoreEntryField = Entry(tab6,width=15,justify="center")
+VisScoreEntryField = Entry(tab6,width=12,justify="center")
 VisScoreEntryField.place(x=390, y=150)
 VisScoreLab = Label(tab6, text = "Score Threshold")
 VisScoreLab.place(x=390, y=170)
@@ -13590,32 +13937,32 @@ VisScoreLab.place(x=390, y=170)
 
 
 
-VisRetScoreEntryField = Entry(tab6,width=15,justify="center")
+VisRetScoreEntryField = Entry(tab6,width=12,justify="center")
 VisRetScoreEntryField.place(x=750, y=55)
 VisRetScoreLab = Label(tab6, text = "Scored Value")
 VisRetScoreLab.place(x=750, y=75)
 
-VisRetAngleEntryField = Entry(tab6,width=15,justify="center")
+VisRetAngleEntryField = Entry(tab6,width=12,justify="center")
 VisRetAngleEntryField.place(x=750, y=105)
 VisRetAngleLab = Label(tab6, text = "Found Angle")
 VisRetAngleLab.place(x=750, y=125)
 
-VisRetXpixEntryField = Entry(tab6,width=15,justify="center")
+VisRetXpixEntryField = Entry(tab6,width=12,justify="center")
 VisRetXpixEntryField.place(x=750, y=155)
 VisRetXpixLab = Label(tab6, text = "Pixel X Position")
 VisRetXpixLab.place(x=750, y=175)
 
-VisRetYpixEntryField = Entry(tab6,width=15,justify="center")
+VisRetYpixEntryField = Entry(tab6,width=12,justify="center")
 VisRetYpixEntryField.place(x=750, y=205)
 VisRetYpixLab = Label(tab6, text = "Pixel Y Position")
 VisRetYpixLab.place(x=750, y=225)
 
-VisRetXrobEntryField = Entry(tab6,width=15,justify="center")
+VisRetXrobEntryField = Entry(tab6,width=12,justify="center")
 VisRetXrobEntryField.place(x=750, y=255)
 VisRetXrobLab = Label(tab6, text = "Robot X Position")
 VisRetXrobLab.place(x=750, y=275)
 
-VisRetYrobEntryField = Entry(tab6,width=15,justify="center")
+VisRetYrobEntryField = Entry(tab6,width=12,justify="center")
 VisRetYrobEntryField.place(x=750, y=305)
 VisRetYrobLab = Label(tab6, text = "Robot Y Position")
 VisRetYrobLab.place(x=750, y=325)
@@ -13626,43 +13973,43 @@ VisRetYrobLab.place(x=750, y=325)
 
 
 
-VisX1PixEntryField = Entry(tab6,width=15,justify="center")
+VisX1PixEntryField = Entry(tab6,width=12,justify="center")
 VisX1PixEntryField.place(x=900, y=55)
 VisX1PixLab = Label(tab6, text = "X1 Pixel Pos")
 VisX1PixLab.place(x=900, y=75)
 
-VisY1PixEntryField = Entry(tab6,width=15,justify="center")
+VisY1PixEntryField = Entry(tab6,width=12,justify="center")
 VisY1PixEntryField.place(x=900, y=105)
 VisY1PixLab = Label(tab6, text = "Y1 Pixel Pos")
 VisY1PixLab.place(x=900, y=125)
 
-VisX2PixEntryField = Entry(tab6,width=15,justify="center")
+VisX2PixEntryField = Entry(tab6,width=12,justify="center")
 VisX2PixEntryField.place(x=900, y=155)
 VisX2PixLab = Label(tab6, text = "X2 Pixel Pos")
 VisX2PixLab.place(x=900, y=175)
 
-VisY2PixEntryField = Entry(tab6,width=15,justify="center")
+VisY2PixEntryField = Entry(tab6,width=12,justify="center")
 VisY2PixEntryField.place(x=900, y=205)
 VisY2PixLab = Label(tab6, text = "Y2 Pixel Pos")
 VisY2PixLab.place(x=900, y=225)
 
 
-VisX1RobEntryField = Entry(tab6,width=15,justify="center")
+VisX1RobEntryField = Entry(tab6,width=12,justify="center")
 VisX1RobEntryField.place(x=1010, y=55)
 VisX1RobLab = Label(tab6, text = "X1 Robot Pos")
 VisX1RobLab.place(x=1010, y=75)
 
-VisY1RobEntryField = Entry(tab6,width=15,justify="center")
+VisY1RobEntryField = Entry(tab6,width=12,justify="center")
 VisY1RobEntryField.place(x=1010, y=105)
 VisY1RobLab = Label(tab6, text = "Y1 Robot Pos")
 VisY1RobLab.place(x=1010, y=125)
 
-VisX2RobEntryField = Entry(tab6,width=15,justify="center")
+VisX2RobEntryField = Entry(tab6,width=12,justify="center")
 VisX2RobEntryField.place(x=1010, y=155)
 VisX2RobLab = Label(tab6, text = "X2 Robot Pos")
 VisX2RobLab.place(x=1010, y=175)
 
-VisY2RobEntryField = Entry(tab6,width=15,justify="center")
+VisY2RobEntryField = Entry(tab6,width=12,justify="center")
 VisY2RobEntryField.place(x=1010, y=205)
 VisY2RobLab = Label(tab6, text = "Y2 Robot Pos")
 VisY2RobLab.place(x=1010, y=225)
@@ -13682,44 +14029,44 @@ GcodeProgEntryField.place(x=20, y=55)
 GcodCurRowEntryField = Entry(tab7,width=10,justify="center")
 GcodCurRowEntryField.place(x=1175, y=20)
 
-GC_ST_E1_EntryField = Entry(tab7,width=8,justify="center")
+GC_ST_E1_EntryField = Entry(tab7,width=5,justify="center")
 GC_ST_E1_EntryField.place(x=20, y=140)
 
-GC_ST_E2_EntryField = Entry(tab7,width=8,justify="center")
+GC_ST_E2_EntryField = Entry(tab7,width=5,justify="center")
 GC_ST_E2_EntryField.place(x=75, y=140)
 
-GC_ST_E3_EntryField = Entry(tab7,width=8,justify="center")
+GC_ST_E3_EntryField = Entry(tab7,width=5,justify="center")
 GC_ST_E3_EntryField.place(x=130, y=140)
 
-GC_ST_E4_EntryField = Entry(tab7,width=8,justify="center")
+GC_ST_E4_EntryField = Entry(tab7,width=5,justify="center")
 GC_ST_E4_EntryField.place(x=185, y=140)
 
-GC_ST_E5_EntryField = Entry(tab7,width=8,justify="center")
+GC_ST_E5_EntryField = Entry(tab7,width=5,justify="center")
 GC_ST_E5_EntryField.place(x=240, y=140)
 
-GC_ST_E6_EntryField = Entry(tab7,width=8,justify="center")
+GC_ST_E6_EntryField = Entry(tab7,width=5,justify="center")
 GC_ST_E6_EntryField.place(x=295, y=140)
 
 GC_ST_WC_EntryField = Entry(tab7,width=3,justify="center")
 GC_ST_WC_EntryField.place(x=350, y=140)
 
 
-GC_SToff_E1_EntryField = Entry(tab7,width=8,justify="center")
+GC_SToff_E1_EntryField = Entry(tab7,width=5,justify="center")
 GC_SToff_E1_EntryField.place(x=20, y=205)
 
-GC_SToff_E2_EntryField = Entry(tab7,width=8,justify="center")
+GC_SToff_E2_EntryField = Entry(tab7,width=5,justify="center")
 GC_SToff_E2_EntryField.place(x=75, y=205)
 
-GC_SToff_E3_EntryField = Entry(tab7,width=8,justify="center")
+GC_SToff_E3_EntryField = Entry(tab7,width=5,justify="center")
 GC_SToff_E3_EntryField.place(x=130, y=205)
 
-GC_SToff_E4_EntryField = Entry(tab7,width=8,justify="center")
+GC_SToff_E4_EntryField = Entry(tab7,width=5,justify="center")
 GC_SToff_E4_EntryField.place(x=185, y=205)
 
-GC_SToff_E5_EntryField = Entry(tab7,width=8,justify="center")
+GC_SToff_E5_EntryField = Entry(tab7,width=5,justify="center")
 GC_SToff_E5_EntryField.place(x=240, y=205)
 
-GC_SToff_E6_EntryField = Entry(tab7,width=8,justify="center")
+GC_SToff_E6_EntryField = Entry(tab7,width=5,justify="center")
 GC_SToff_E6_EntryField.place(x=295, y=205)
 
 GcodeFilenameField = Entry(tab7,width=40,justify="center")
@@ -13783,7 +14130,7 @@ delGcodeBut.place(x=20, y=415)
 readGcodeBut = Button(tab7, text="Read Files from SD", width=25,   command = partial(GCread, "yes"))
 readGcodeBut.place(x=20, y=455)
 
-playGPhoto=PhotoImage(file="play-icon.gif")
+playGPhoto=PhotoImage(file="play-icon.png")
 readGcodeBut = Button(tab7, text="Play Gcode File", width=20,   command = GCplay, image = playGPhoto, compound=LEFT)
 readGcodeBut.place(x=20, y=495)
 
@@ -13830,7 +14177,7 @@ Elogframe=Frame(tab8)
 Elogframe.place(x=40,y=15)
 scrollbar = Scrollbar(Elogframe) 
 scrollbar.pack(side=RIGHT, fill=Y)
-tab8.ElogView = Listbox(Elogframe,width=150,height=40, yscrollcommand=scrollbar.set)
+tab8.ElogView = Listbox(Elogframe,width=230,height=40, yscrollcommand=scrollbar.set)
 try:
   Elog = pickle.load(open("ErrorLog","rb"))
 except:
@@ -13848,7 +14195,7 @@ def clearLog():
  pickle.dump(value,open("ErrorLog","wb"))
 
 clearLogBut = Button(tab8,  text="Clear Log",  width=26, command = clearLog)
-clearLogBut.place(x=1000, y=630)
+clearLogBut.place(x=40, y=690)
 
 
 
