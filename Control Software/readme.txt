@@ -12,6 +12,10 @@ Using Source Code
 		python -m pip install Pillow
 		python -m pip install auto-py-to-exe
 		python -m pip install matplotlib
+		python -m pip install pygrabber
+		python -m pip install datetime
+		python -m pip install pathlib
+
 
 	4. To convert ARCS.py to an EXE file python open CMD window and navigate to the folder python was installed in.
 		and then install program: -m pip install auto-py-to-exe.

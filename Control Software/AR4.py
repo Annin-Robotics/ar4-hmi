@@ -1,5 +1,5 @@
 ############################################################################
-## Version AR4 4.0 #########################################################
+## Version AR4 4.3.1 #########################################################
 ############################################################################
 """ AR4 - robot control software
     Copyright (c) 2023, Chris Annin
@@ -53,7 +53,8 @@
   VERSION 3.2 6/3/23 remove RoboDK kinematics
   VERSION 3.3 6/4/23 update geometric kinematics
   VERSION 4.0 11/5/23 .txt .ar4 extension, gcode tab, kinematics tab. Initial MK2 release.
-
+  VERSION 4.3 1/21/24 Gcode to SD card.  Estop button interrupt.
+  VERSION 4.3.1 2/1/24 bug fix - vision snap and find drop down 
 '''
 ##########################################################################
 ##########################################################################
@@ -72,7 +73,9 @@ from PIL import Image, ImageTk
 from matplotlib import pyplot as plt
 from pygrabber.dshow_graph import FilterGraph
 from tkinter import filedialog as fd
+from functools import partial
 
+import sys
 import pickle
 import serial
 import time
@@ -95,7 +98,7 @@ cropping = False
 
 
 root = Tk()
-root.wm_title("AR4 Software Ver 4.0")
+root.wm_title("AR4 Software Ver 4.3.1")
 root.iconbitmap(r'AR.ico')
 root.resizable(width=False, height=False)
 root.geometry('1536x792+0+0')
@@ -352,10 +355,13 @@ def lightTheme():
 ############################################################################################################################################################### 
 
 def runProg():
+  global estopActive
+  estopActive = FALSE
   def threadProg():
     global rowinproc
     global stopQueue
     global splineActive
+    global estopActive
     stopQueue = "0"
     splineActive = "0"
     try:
@@ -369,8 +375,12 @@ def runProg():
     tab1.runTrue = 1
     while tab1.runTrue == 1:
       if (tab1.runTrue == 0):
-        almStatusLab.config(text="PROGRAM STOPPED",  style="Alarm.TLabel")
-        almStatusLab2.config(text="PROGRAM STOPPED",  style="Alarm.TLabel")
+        if (estopActive == TRUE):
+          almStatusLab.config(text="ESTOP BUTTON WAS PRESSED",  style="Alarm.TLabel")
+          almStatusLab2.config(text="ESTOP BUTTON WAS PRESSED",  style="Alarm.TLabel")
+        else:
+          almStatusLab.config(text="PROGRAM STOPPED",  style="Alarm.TLabel")
+          almStatusLab2.config(text="PROGRAM STOPPED",  style="Alarm.TLabel")  
       else:
         almStatusLab.config(text="PROGRAM RUNNING",  style="OK.TLabel")
         almStatusLab2.config(text="PROGRAM RUNNING",  style="OK.TLabel") 
@@ -398,8 +408,12 @@ def runProg():
         curRowEntryField.delete(0, 'end')
         curRowEntryField.insert(0,"---") 
         tab1.runTrue = 0
-        almStatusLab.config(text="PROGRAM STOPPED",  style="Alarm.TLabel")
-        almStatusLab2.config(text="PROGRAM STOPPED",  style="Alarm.TLabel") 
+        if (estopActive == TRUE):
+          almStatusLab.config(text="ESTOP BUTTON WAS PRESSED",  style="Alarm.TLabel")
+          almStatusLab2.config(text="ESTOP BUTTON WAS PRESSED",  style="Alarm.TLabel")
+        else:
+          almStatusLab.config(text="PROGRAM STOPPED",  style="Alarm.TLabel")
+          almStatusLab2.config(text="PROGRAM STOPPED",  style="Alarm.TLabel") 
   t = threading.Thread(target=threadProg)
   t.start()
   
@@ -450,11 +464,16 @@ def stepRev():
 def stopProg():
   global cmdType
   global splineActive
+  global estopActive
   global stopQueue
   lastProg = ""
   tab1.runTrue = 0
-  almStatusLab.config(text="PROGRAM STOPPED",  style="Alarm.TLabel")
-  almStatusLab2.config(text="PROGRAM STOPPED",  style="Alarm.TLabel")  
+  if (estopActive == TRUE):
+    almStatusLab.config(text="ESTOP BUTTON WAS PRESSED",  style="Alarm.TLabel")
+    almStatusLab2.config(text="ESTOP BUTTON WAS PRESSED",  style="Alarm.TLabel")
+  else:        
+    almStatusLab.config(text="PROGRAM STOPPED",  style="Alarm.TLabel")
+    almStatusLab2.config(text="PROGRAM STOPPED",  style="Alarm.TLabel")  
   
   
 def executeRow():
@@ -495,6 +514,23 @@ def executeRow():
     index = 0
     tab1.progView.selection_clear(0, END)
     tab1.progView.select_set(index) 
+
+  ##Run Gcode Program##
+  if (cmdType == "Run Gc"):
+    if (moveInProc == 1):
+      moveInProc == 2
+    tab1.lastRow = tab1.progView.curselection()[0]
+    tab1.lastProg = ProgEntryField.get()
+    programIndex = command.find("Program -")
+    filename = str(command[programIndex+10:])
+    manEntryField.delete(0, 'end')
+    manEntryField.insert(0,filename)
+    GCplayProg(filename)
+    time.sleep(.4) 
+    index = 0
+    tab1.progView.selection_clear(0, END)
+    tab1.progView.select_set(index) 
+
   ##Return Program##
   if (cmdType == "Return"):
     if (moveInProc == 1):
@@ -4427,7 +4463,11 @@ def Servo():
     f.close()
 
 def loadProg():
-  folder = os.path.dirname(os.path.realpath(__file__))
+  if getattr(sys, 'frozen', False):
+    folder = os.path.dirname(sys.executable)
+  elif __file__:
+    folder = os.path.dirname(os.path.realpath(__file__))
+  #folder = os.path.dirname(os.path.realpath(__file__))
   filetypes = (('robot program', '*.ar4'),("all files", "*.*"))
   filename = fd.askopenfilename(title='Open files',initialdir=folder,filetypes=filetypes)
   name = os.path.basename(filename)
@@ -4495,6 +4535,29 @@ def insertCallProg():
   	  f.write(str(item.strip(), encoding='utf-8'))
   	  f.write('\n')
     f.close()
+
+def insertGCprog():  
+  try:
+    selRow = tab1.progView.curselection()[0]
+    selRow += 1
+  except:
+    last = tab1.progView.index('end')
+    selRow = last
+    tab1.progView.select_set(selRow)
+  newProg = PlayGCEntryField.get()
+  GCProg = "Run Gcode Program - "+newProg            
+  tab1.progView.insert(selRow, bytes(GCProg + '\n', 'utf-8')) 
+  tab1.progView.selection_clear(0, END)
+  tab1.progView.select_set(selRow)
+  items = tab1.progView.get(0,END)
+  file_path = path.relpath(ProgEntryField.get())
+  with open(file_path,'w', encoding='utf-8') as f:
+    for item in items:
+  	  f.write(str(item.strip(), encoding='utf-8'))
+  	  f.write('\n')
+    f.close()    
+
+    
 
 def insertReturn():  
   try:
@@ -5418,17 +5481,6 @@ def CalRestPos():
   pickle.dump(value,open("ErrorLog","wb"))  
 
 
-def ResetDrives():
-  ResetDriveBut = Button(tab1,  text="Reset Drives",   command = ResetDrives)
-  ResetDriveBut.place(x=307, y=42)
-  command = "RD"+"\n"
-  ser.write(command.encode())    
-  ser.flushInput()
-  time.sleep(.1)
-  response = ser.read()
-  almStatusLab.config(text="DRIVES RESET - PLEASE CHECK CALIBRATION", style="Warn.TLabel")
-  almStatusLab2.config(text="DRIVES RESET - PLEASE CHECK CALIBRATION", style="Warn.TLabel")
-  requestPos()
 
 
 def displayPosition(response):
@@ -6192,6 +6244,7 @@ def savePosData():
   calibration.insert(END, J4aEntryField.get())
   calibration.insert(END, J5aEntryField.get())
   calibration.insert(END, J6aEntryField.get())
+  calibration.insert(END, GC_ST_WC_EntryField.get())
   
 
   ###########
@@ -6229,6 +6282,7 @@ def checkSpeedVals():
 
 
 def ErrorHandler(response):
+  global estopActive
   Curtime = datetime.datetime.now().strftime("%B %d %Y - %I:%M%p")
   cmdRecEntryField.delete(0, 'end')
   cmdRecEntryField.insert(0,response)
@@ -6284,6 +6338,7 @@ def ErrorHandler(response):
     message = "Axis Limit Error - See Log"
     almStatusLab.config(text=message, style="Alarm.TLabel")
     almStatusLab2.config(text=message, style="Alarm.TLabel")
+    GCalmStatusLab.config(text=message, style="Alarm.TLabel")
     #stopProg()
   ##COLLISION ERROR   
   elif (response[1:2] == 'C'):
@@ -6296,7 +6351,8 @@ def ErrorHandler(response):
       stopProg()
       message = "Collision or Motor Error - See Log"
       almStatusLab.config(text=message, style="Alarm.TLabel")
-      almStatusLab2.config(text=message, style="Alarm.TLabel")   
+      almStatusLab2.config(text=message, style="Alarm.TLabel")
+      GCalmStatusLab.config(text=message, style="Alarm.TLabel")   
     if (response[3:4] == '1'):
       message = "J2 Collision or Motor Error"
       tab8.ElogView.insert(END, Curtime+" - "+message)
@@ -6307,6 +6363,7 @@ def ErrorHandler(response):
       message = "Collision or Motor Error - See Log"
       almStatusLab.config(text=message, style="Alarm.TLabel")
       almStatusLab2.config(text=message, style="Alarm.TLabel")
+      GCalmStatusLab.config(text=message, style="Alarm.TLabel")
     if (response[4:5] == '1'):
       message = "J3 Collision or Motor Error"
       tab8.ElogView.insert(END, Curtime+" - "+message)
@@ -6317,6 +6374,7 @@ def ErrorHandler(response):
       message = "Collision or Motor Error - See Log"
       almStatusLab.config(text=message, style="Alarm.TLabel")
       almStatusLab2.config(text=message, style="Alarm.TLabel")
+      GCalmStatusLab.config(text=message, style="Alarm.TLabel")
     if (response[5:6] == '1'):
       message = "J4 Collision or Motor Error"
       tab8.ElogView.insert(END, Curtime+" - "+message)
@@ -6327,6 +6385,7 @@ def ErrorHandler(response):
       message = "Collision or Motor Error - See Log"
       almStatusLab.config(text=message, style="Alarm.TLabel")
       almStatusLab2.config(text=message, style="Alarm.TLabel")
+      GCalmStatusLab.config(text=message, style="Alarm.TLabel")
     if (response[6:7] == '1'):
       message = "J5 Collision or Motor Error"
       tab8.ElogView.insert(END, Curtime+" - "+message)
@@ -6337,6 +6396,7 @@ def ErrorHandler(response):
       message = "Collision or Motor Error - See Log"
       almStatusLab.config(text=message, style="Alarm.TLabel")
       almStatusLab2.config(text=message, style="Alarm.TLabel")
+      GCalmStatusLab.config(text=message, style="Alarm.TLabel")
     if (response[7:8] == '1'):
       message = "J6 Collision or Motor Error"
       tab8.ElogView.insert(END, Curtime+" - "+message)
@@ -6347,6 +6407,7 @@ def ErrorHandler(response):
       message = "Collision or Motor Error - See Log"
       almStatusLab.config(text=message, style="Alarm.TLabel")
       almStatusLab2.config(text=message, style="Alarm.TLabel")
+      GCalmStatusLab.config(text=message, style="Alarm.TLabel")
 
   ##REACH ERROR   
   elif (response[1:2] == 'R'):
@@ -6357,6 +6418,7 @@ def ErrorHandler(response):
     pickle.dump(value,open("ErrorLog","wb")) 
     almStatusLab.config(text=message, style="Alarm.TLabel")
     almStatusLab2.config(text=message, style="Alarm.TLabel")
+    GCalmStatusLab.config(text=message, style="Alarm.TLabel")
 
   ##SPLINE ERROR   
   elif (response[1:2] == 'S'):  
@@ -6367,6 +6429,30 @@ def ErrorHandler(response):
     pickle.dump(value,open("ErrorLog","wb")) 
     almStatusLab.config(text=message, style="Alarm.TLabel")
     almStatusLab2.config(text=message, style="Alarm.TLabel")
+    GCalmStatusLab.config(text=message, style="Alarm.TLabel")
+
+  ##GCODE ERROR   
+  elif (response[1:2] == 'G'):
+    stopProg()
+    message = "Gcode file not found"
+    tab8.ElogView.insert(END, Curtime+" - "+message)
+    value=tab8.ElogView.get(0,END)
+    pickle.dump(value,open("ErrorLog","wb")) 
+    almStatusLab.config(text=message, style="Alarm.TLabel")
+    almStatusLab2.config(text=message, style="Alarm.TLabel")
+    GCalmStatusLab.config(text=message, style="Alarm.TLabel")
+
+  ##ESTOP BUTTON   
+  elif (response[1:2] == 'B'):
+    estopActive = TRUE
+    stopProg()
+    message = "Estop Button was Pressed"
+    tab8.ElogView.insert(END, Curtime+" - "+message)
+    value=tab8.ElogView.get(0,END)
+    pickle.dump(value,open("ErrorLog","wb")) 
+    almStatusLab.config(text=message, style="Alarm.TLabel")
+    almStatusLab2.config(text=message, style="Alarm.TLabel")
+    GCalmStatusLab.config(text=message, style="Alarm.TLabel")     
 
   ##CALIBRATION ERROR 
   elif (response[1:2] == 'A'):  
@@ -6424,6 +6510,7 @@ def ErrorHandler(response):
     pickle.dump(value,open("ErrorLog","wb"))
     almStatusLab.config(text=message, style="Alarm.TLabel")
     almStatusLab2.config(text=message, style="Alarm.TLabel")
+    GCalmStatusLab.config(text=message, style="Alarm.TLabel")
       
 	
 	
@@ -7091,13 +7178,13 @@ def visFind(template,min_score,background):
           highangle = 180 + highangle
       #try closest
       pickClosestVal = int(pickClosest.get())
-      if (pickClosestVal == highangle and highangle>J6PosLim):
+      if (pickClosestVal == highangle and highangle>int(J6PosLim)):
         highangle=J6PosLim
-      elif (pickClosestVal == 0 and highangle>J6PosLim):    
+      elif (pickClosestVal == 0 and highangle>int(J6PosLim)):    
         status = "fail"
-      if (pickClosestVal == 1 and highangle<(J6NegLim*-1)):
+      if (pickClosestVal == 1 and highangle<(int(J6NegLim)*-1)):
         highangle=J6NegLim*-1
-      elif (pickClosestVal == 0 and highangle<(J6NegLim*-1)):  
+      elif (pickClosestVal == 0 and highangle<(int(J6NegLim)*-1)):  
         status = "fail"
 
       top_left = highmax_loc
@@ -7284,11 +7371,14 @@ def visFind(template,min_score,background):
 
 
 
-
 def updateVisOp():
   global selectedTemplate
   selectedTemplate = StringVar()
-  folder = os.path.dirname(os.path.realpath(__file__))
+  if getattr(sys, 'frozen', False):
+    folder = os.path.dirname(sys.executable)
+  elif __file__:
+    folder = os.path.dirname(os.path.realpath(__file__))
+  #folder = os.path.dirname(os.path.realpath(__file__))
   filelist = [fname for fname in os.listdir(folder) if fname.endswith('.jpg')]
   Visoptmenu = ttk.Combobox(tab6, textvariable=selectedTemplate, values=filelist, state='readonly')
   Visoptmenu.place(x=390, y=52)
@@ -7425,7 +7515,9 @@ def SetGcodeStartPos():
   GC_ST_E5_EntryField.delete(0, 'end')
   GC_ST_E5_EntryField.insert(0,str(RycurPos))  
   GC_ST_E6_EntryField.delete(0, 'end')
-  GC_ST_E6_EntryField.insert(0,str(RxcurPos))  
+  GC_ST_E6_EntryField.insert(0,str(RxcurPos))
+  GC_ST_WC_EntryField.delete(0, 'end')
+  GC_ST_WC_EntryField.insert(0,str(WC))  
 
 def MoveGcodeStartPos():
   xVal = str(float(GC_ST_E1_EntryField.get())+float(GC_SToff_E1_EntryField.get()))
@@ -7442,7 +7534,7 @@ def MoveGcodeStartPos():
   ACCspd = "10"
   DECspd = "10"
   ACCramp = "100"
-  WC = "F"
+  WC = GC_ST_WC_EntryField.get()
   LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
   command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+J7Val+"J8"+J8Val+"J9"+J9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   cmdSentEntryField.delete(0, 'end')
@@ -7480,67 +7572,155 @@ def GCstepFwd():
       GcodCurRowEntryField.delete(0, 'end')
       GcodCurRowEntryField.insert(0,"---")  
 
+def GCdelete():
+  if(GcodeFilenameField.get() != ""):
+    Filename = GcodeFilenameField.get() + ".txt"
+    command = "DG"+"Fn"+Filename+"\n"
+    cmdSentEntryField.delete(0, 'end')
+    cmdSentEntryField.insert(0,command)
+    ser.write(command.encode())
+    ser.flushInput()
+    time.sleep(.1)
+    response = str(ser.readline().strip(),'utf-8')
+    if (response[:1] == 'E'):
+      ErrorHandler(response)   
+    else:
+      if(response == "P"):
+        text = Filename + " has been deleted"
+        GCalmStatusLab.config(text= text,  style="OK.TLabel")
+        status = "no"
+        GCread(status)
+      elif(response == "F"):
+        text = Filename + " was not found"
+        GCalmStatusLab.config(text= text,  style="Alarm.TLabel")
+  else:
+    messagebox.showwarning("warning","Please Enter a Filename")
 
-def GCrunProg():
-  last = tab7.gcodeView.index('end')
-  for row in range (0,last):
-    tab7.gcodeView.itemconfig(row, {'fg': 'black'})
-  def GCthreadProg():
-    global GCrowinproc
-    global GCstopQueue
-    global splineActive
-    global prevxVal
-    global prevyVal
-    global prevzVal
-    prevxVal = 0
-    prevyVal = 0
-    prevzVal = 0
-    GCstopQueue = "0"
-    splineActive = "0"
-    try:
-      GCselRow = tab7.gcodeView.curselection()[0]
-      if (GCselRow == 0):
-        GCselRow=1
-    except:
-      GCselRow=1
-      tab7.gcodeView.selection_clear(0, END)
-      tab7.gcodeView.select_set(GCselRow)
-    tab7.GCrunTrue = 1
-    while tab7.GCrunTrue == 1:
-      if (tab7.GCrunTrue == 0):
-        GCalmStatusLab.config(text="GCODE PROGRAM STOPPED",  style="Alarm.TLabel")
-      else:
-        GCalmStatusLab.config(text="GCODE PROGRAM RUNNING",  style="OK.TLabel")
-      GCrowinproc = 1
-      GCexecuteRow()
-      while GCrowinproc == 1:
-        time.sleep(.1)	  
-      GCselRow = tab7.gcodeView.curselection()[0]
-      #last = tab7.gcodeView.index('end')
-      #for row in range (0,GCselRow):
-      #  tab7.gcodeView.itemconfig(row, {'fg': 'dodger blue'})
-      tab7.gcodeView.itemconfig(GCselRow, {'fg': 'blue2'})
-      #for row in range (GCselRow+1,last):
-      #  tab7.gcodeView.itemconfig(row, {'fg': 'black'})
-      tab7.gcodeView.selection_clear(0, END)
-      GCselRow += 1
-      tab7.gcodeView.select_set(GCselRow)
-      #gcodeRow += 1
-      #GcodCurRowEntryField.delete(0, 'end')
-      #GcodCurRowEntryField.insert(0,GCselRow)
-      #time.sleep(.1)
+def GCread(status):
+  command = "RG"+"\n"
+  cmdSentEntryField.delete(0, 'end')
+  cmdSentEntryField.insert(0,command)
+  ser.write(command.encode())
+  ser.flushInput()
+  time.sleep(.1)
+  response = str(ser.readline().strip(),'utf-8')
+  if (response[:1] == 'E'):
+    ErrorHandler(response)   
+  else:
+    if(status == "yes"):
+      GCalmStatusLab.config(text= "FILES FOUND ON SD CARD:",  style="OK.TLabel")
+    GcodeProgEntryField.delete(0, 'end')
+    tab7.gcodeView.delete(0,END)
+    for value in response.split(","):
+      tab7.gcodeView.insert(END,value)
+    tab7.gcodeView.pack()
+    gcodescrollbar.config(command=tab7.gcodeView.yview)
+
+
+def GCplay():
+  Filename = GcodeFilenameField.get()
+  GCplayProg(Filename)
+
+  
+
+def GCplayProg(Filename):
+  GCalmStatusLab.config(text= "GCODE FILE RUNNING",  style="OK.TLabel")
+  def GCthreadPlay():
+    global estopActive
+    Fn = Filename + ".txt"
+    command = "PG"+"Fn"+Fn+"\n"
+    cmdSentEntryField.delete(0, 'end')
+    cmdSentEntryField.insert(0,command)
+    ser.write(command.encode())
+    ser.flushInput()
+    time.sleep(.1)
+    response = str(ser.readline().strip(),'utf-8')
+    if (response[:1] == 'E'):
+      ErrorHandler(response)   
+    else:
+      displayPosition(response)
+      if (estopActive == TRUE):
+        GCalmStatusLab.config(text= "ESTOP BUTTON WAS PRESSED",  style="Alarm.TLabel")
+      else:  
+        GCalmStatusLab.config(text= "GCODE FILE COMPLETE",  style="Warn.TLabel") 
+  GCplay = threading.Thread(target=GCthreadPlay)
+  GCplay.start()   
+
+
+def GCconvertProg():
+  if(GcodeProgEntryField.get() == ""):
+    messagebox.showwarning("warning","Please Load a Gcode Program") 
+  elif (GcodeFilenameField.get() == ""):  
+    messagebox.showwarning("warning","Please Enter a Filename") 
+  else:
+    Filename = GcodeFilenameField.get() + ".txt"
+    command = "DG"+"Fn"+Filename+"\n"
+    cmdSentEntryField.delete(0, 'end')
+    cmdSentEntryField.insert(0,command)
+    ser.write(command.encode())
+    ser.flushInput()
+    time.sleep(.1)
+    response = str(ser.readline().strip(),'utf-8')  
+    last = tab7.gcodeView.index('end')
+    for row in range (0,last):
+      tab7.gcodeView.itemconfig(row, {'fg': 'black'})
+    def GCthreadProg():
+      global GCrowinproc
+      global GCstopQueue
+      global splineActive
+      global prevxVal
+      global prevyVal
+      global prevzVal
+      prevxVal = 0
+      prevyVal = 0
+      prevzVal = 0
+      GCstopQueue = "0"
+      splineActive = "0"
       try:
         GCselRow = tab7.gcodeView.curselection()[0]
-        GcodCurRowEntryField.delete(0, 'end')
-        GcodCurRowEntryField.insert(0,GCselRow)
+        if (GCselRow == 0):
+          GCselRow=1
       except:
-        GcodCurRowEntryField.delete(0, 'end')
-        GcodCurRowEntryField.insert(0,"---") 
-        tab7.GCrunTrue = 0
-        GCalmStatusLab.config(text="GCODE PROGRAM STOPPED",  style="Alarm.TLabel")
-  GCt = threading.Thread(target=GCthreadProg)
-  GCt.start()    
+        GCselRow=1
+        tab7.gcodeView.selection_clear(0, END)
+        tab7.gcodeView.select_set(GCselRow)
+      tab7.GCrunTrue = 1
+      while tab7.GCrunTrue == 1:
+        if (tab7.GCrunTrue == 0):
+          GCalmStatusLab.config(text="GCODE CONVERSION STOPPED",  style="Alarm.TLabel")
+        else:
+          GCalmStatusLab.config(text="GCODE CONVERSION RUNNING",  style="OK.TLabel")
+        GCrowinproc = 1
+        GCexecuteRow()
+        while GCrowinproc == 1:
+          time.sleep(.1)	  
+        GCselRow = tab7.gcodeView.curselection()[0]
+        #last = tab7.gcodeView.index('end')
+        #for row in range (0,GCselRow):
+        #  tab7.gcodeView.itemconfig(row, {'fg': 'dodger blue'})
+        tab7.gcodeView.itemconfig(GCselRow, {'fg': 'blue2'})
+        #for row in range (GCselRow+1,last):
+        #  tab7.gcodeView.itemconfig(row, {'fg': 'black'})
+        tab7.gcodeView.selection_clear(0, END)
+        GCselRow += 1
+        tab7.gcodeView.select_set(GCselRow)
+        #gcodeRow += 1
+        #GcodCurRowEntryField.delete(0, 'end')
+        #GcodCurRowEntryField.insert(0,GCselRow)
+        #time.sleep(.1)
+        try:
+          GCselRow = tab7.gcodeView.curselection()[0]
+          GcodCurRowEntryField.delete(0, 'end')
+          GcodCurRowEntryField.insert(0,GCselRow)
+        except:
+          GcodCurRowEntryField.delete(0, 'end')
+          GcodCurRowEntryField.insert(0,"---") 
+          tab7.GCrunTrue = 0
+          GCalmStatusLab.config(text="GCODE CONVERSION STOPPED",  style="Alarm.TLabel")
+    GCt = threading.Thread(target=GCthreadProg)
+    GCt.start()    
 
+     
 
 
 def GCstopProg():
@@ -7549,7 +7729,7 @@ def GCstopProg():
     global GCstopQueue
     lastProg = ""
     tab7.GCrunTrue = 0
-    GCalmStatusLab.config(text="GCODE PROGRAM STOPPED",  style="Alarm.TLabel")
+    GCalmStatusLab.config(text="GCODE CONVERSION STOPPED",  style="Alarm.TLabel")
     if(splineActive==1):
       splineActive = "0"
       if(stopQueue == "1"):
@@ -7590,6 +7770,9 @@ def GCexecuteRow():
   global prevxVal
   global prevyVal
   global prevzVal
+  global xVal
+  global yVal
+  global zVal
   GCstartTime = time.time()
   GCselRow = tab7.gcodeView.curselection()[0]
   tab7.gcodeView.see(GCselRow+2)
@@ -7632,32 +7815,25 @@ def GCexecuteRow():
       ACCspd = "10"
       DECspd = "10"
       ACCramp = "100"
-      WC = "F"
+      WC = GC_ST_WC_EntryField.get()
       LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
-      command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+J7Val+"J8"+J8Val+"J9"+J9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
-      cmdSentEntryField.delete(0, 'end')
+      Filename = GcodeFilenameField.get() + ".txt"
+      command = "WC"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+J7Val+"J8"+J8Val+"J9"+J9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"Fn"+Filename+"\n"
+      cmdSentEntryField.delete(0, 'end') 
+
+
       cmdSentEntryField.insert(0,command)
       ser.write(command.encode())
       ser.flushInput()
       time.sleep(.1)
       response = str(ser.readline().strip(),'utf-8')
       if (response[:1] == 'E'):
-        ErrorHandler(response)   
+        ErrorHandler(response)
+        GCstopProg()
+        tab7.GCrunTrue = 0
+        GCalmStatusLab.config(text="UNABLE TO WRITE TO SD CARD",  style="Alarm.TLabel")   
       else:
         displayPosition(response) 
-
-
-      # START SPLINE ##
-      splineActive = "1"
-      if (moveInProc == 1):
-        moveInProc == 2
-      command = "SL\n" 
-      cmdSentEntryField.delete(0, 'end')
-      cmdSentEntryField.insert(0,command)
-      ser.write(command.encode())
-      ser.flushInput()
-      time.sleep(.1)
-      ser.read()    
 
 
     #LINEAR MOVE
@@ -7807,11 +7983,13 @@ def GCexecuteRow():
 
 
       Rounding = "0"
-      WC = "F"
+      WC = GC_ST_WC_EntryField.get()
       #LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
       LoopMode ="111111"
-      DisWrist = str(DisableWristRot.get())
-      command = "MG"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+J7Val+"J8"+J8Val+"J9"+J9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"Rnd"+Rounding+"W"+WC+"Lm"+LoopMode+"Q"+DisWrist+"\n"
+      #DisWrist = str(DisableWristRot.get())
+      Filename = GcodeFilenameField.get() + ".txt"
+
+      command = "WC"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+J7Val+"J8"+J8Val+"J9"+J9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"Rnd"+Rounding+"W"+WC+"Lm"+LoopMode+"Fn"+Filename+"\n"
       prevxVal = xVal
       prevyVal = yVal
       prevzVal = zVal
@@ -7828,6 +8006,8 @@ def GCexecuteRow():
       #ser.read()
       response = str(ser.readline().strip(),'utf-8')
       if (response[:1] == 'E'):
+        tab7.GCrunTrue = 0
+        GCalmStatusLab.config(text="UNABLE TO WRITE TO SD CARD",  style="Alarm.TLabel")
         ErrorHandler(response)   
       else:
         displayPosition(response)
@@ -7836,7 +8016,7 @@ def GCexecuteRow():
 
   
 
-      
+   
 
 
         
@@ -8603,6 +8783,9 @@ returnBut.place(x=950, y=640)
 visFindBut = Button(tab1,  text="Vision Find",  width=22,   command = insertvisFind)
 visFindBut.place(x=950, y=680)
 
+GCplayBut = Button(tab1,  text="Play Gcode",  width=22,   command = insertGCprog)
+GCplayBut.place(x=950, y=720)
+
 ##
 IfOnjumpInputTabEntryField = Entry(tab1,width=5)
 IfOnjumpInputTabEntryField.place(x=1107, y=363)
@@ -8654,6 +8837,9 @@ visPassEntryField.place(x=1107, y=683)
 
 visFailEntryField = Entry(tab1,width=5)
 visFailEntryField.place(x=1147, y=683)
+
+PlayGCEntryField = Entry(tab1,width=22)
+PlayGCEntryField.place(x=1107, y=723)
 
 manEntLab = Label(tab1, font=("Arial", 6), text = "Manual Program Entry")
 manEntLab.place(x=10, y=685)
@@ -10481,10 +10667,12 @@ except:
   camList = ["Select a Camera"]
 visoptions=StringVar(tab6)
 visoptions.set("Select a Camera")
-vismenu=OptionMenu(tab6, visoptions, camList[0], *camList)
-vismenu.config(width=20)
-vismenu.place(x=10, y=10)
-
+try:
+  vismenu=OptionMenu(tab6, visoptions, camList[0], *camList)
+  vismenu.config(width=20)
+  vismenu.place(x=10, y=10)
+except: 
+  print ("no camera")
 
  
 
@@ -10668,53 +10856,6 @@ VisY2RobLab.place(x=1010, y=225)
 ####################################################################################################################################################
 ####TAB 7
 
-
-GCalmStatusLab = Label(tab7, text = "GCODE IDLE", style="OK.TLabel")
-GCalmStatusLab.place(x=400, y=20)
-
-
-gcodeframe=Frame(tab7)
-gcodeframe.place(x=400,y=53)
-gcodescrollbar = Scrollbar(gcodeframe) 
-gcodescrollbar.pack(side=RIGHT, fill=Y)
-tab7.gcodeView = Listbox(gcodeframe,exportselection=0,width=105,height=43, yscrollcommand=gcodescrollbar.set)
-tab7.gcodeView.bind('<<ListboxSelect>>', gcodeViewselect)
-tab7.gcodeView.pack()
-gcodescrollbar.config(command=tab7.gcodeView.yview)
-
-
-LoadGcodeBut = Button(tab7,  text="Load Program", width=25, command = loadGcodeProg)
-LoadGcodeBut.place(x=20, y=20)
-
-GcodeStartPosBut = Button(tab7,  text="Set Start Position", width=25, command = SetGcodeStartPos)
-GcodeStartPosBut.place(x=20, y=100)
-
-GcodeMoveStartPosBut = Button(tab7,  text="Move to Start Offset", width=25, command = MoveGcodeStartPos)
-GcodeMoveStartPosBut.place(x=20, y=240)
-
-runGcodeBut = Button(tab7,   command = GCrunProg)
-playGPhoto=PhotoImage(file="play-icon.gif")
-runGcodeBut.config(image=playGPhoto)
-runGcodeBut.place(x=20, y=290)
-
-stopGcodeBut = Button(tab7,   command = GCstopProg)
-stopGPhoto=PhotoImage(file="stop-icon.gif")
-stopGcodeBut.config(image=stopGPhoto)
-stopGcodeBut.place(x=100, y=290)
-
-revGcodeBut = Button(tab7,  text="REV ",  command = stepRev)
-revGcodeBut.place(x=180, y=290)
-
-fwdGcodeBut = Button(tab7,  text="FWD", command = GCstepFwd)
-fwdGcodeBut.place(x=230, y=290)
-
-saveGCBut = Button(tab7,  text="SAVE DATA",  width=26, command = SaveAndApplyCalibration)
-saveGCBut.place(x=20, y=500)
-
-
-
-
-
 GcodeProgEntryField = Entry(tab7,width=60)
 GcodeProgEntryField.place(x=20, y=55)
 
@@ -10739,6 +10880,9 @@ GC_ST_E5_EntryField.place(x=240, y=140)
 GC_ST_E6_EntryField = Entry(tab7,width=8)
 GC_ST_E6_EntryField.place(x=295, y=140)
 
+GC_ST_WC_EntryField = Entry(tab7,width=3)
+GC_ST_WC_EntryField.place(x=350, y=140)
+
 
 GC_SToff_E1_EntryField = Entry(tab7,width=8)
 GC_SToff_E1_EntryField.place(x=20, y=205)
@@ -10758,6 +10902,86 @@ GC_SToff_E5_EntryField.place(x=240, y=205)
 GC_SToff_E6_EntryField = Entry(tab7,width=8)
 GC_SToff_E6_EntryField.place(x=295, y=205)
 
+GcodeFilenameField = Entry(tab7,width=40)
+GcodeFilenameField.place(x=20, y=340)
+
+
+GCalmStatusLab = Label(tab7, text = "GCODE IDLE", style="OK.TLabel")
+GCalmStatusLab.place(x=400, y=20)
+
+
+gcodeframe=Frame(tab7)
+gcodeframe.place(x=400,y=53)
+gcodescrollbar = Scrollbar(gcodeframe) 
+gcodescrollbar.pack(side=RIGHT, fill=Y)
+tab7.gcodeView = Listbox(gcodeframe,exportselection=0,width=105,height=43, yscrollcommand=gcodescrollbar.set)
+tab7.gcodeView.bind('<<ListboxSelect>>', gcodeViewselect)
+tab7.gcodeView.pack()
+gcodescrollbar.config(command=tab7.gcodeView.yview)
+
+def GCcallback(event):
+    selection = event.widget.curselection()
+    try:
+      if selection:
+          index = selection[0]
+          data = event.widget.get(index)
+          data = data.replace('.txt','')
+          GcodeFilenameField.delete(0, 'end')
+          GcodeFilenameField.insert(0,data)
+          PlayGCEntryField.delete(0, 'end')
+          PlayGCEntryField.insert(0,data)    
+      else:
+          GcodeFilenameField.insert(0,"")  
+    except:
+      print("not an SD file")
+      
+tab7.gcodeView.bind("<<ListboxSelect>>", GCcallback)
+
+
+LoadGcodeBut = Button(tab7,  text="Load Program", width=25, command = loadGcodeProg)
+LoadGcodeBut.place(x=20, y=20)
+
+GcodeStartPosBut = Button(tab7,  text="Set Start Position", width=25, command = SetGcodeStartPos)
+GcodeStartPosBut.place(x=20, y=100)
+
+GcodeMoveStartPosBut = Button(tab7,  text="Move to Start Offset", width=25, command = MoveGcodeStartPos)
+GcodeMoveStartPosBut.place(x=20, y=240)
+
+runGcodeBut = Button(tab7, text="Convert & Upload to SD", width=25,   command = GCconvertProg)
+#playGPhoto=PhotoImage(file="play-icon.gif")
+#runGcodeBut.config(image=playGPhoto)
+runGcodeBut.place(x=20, y=375)
+
+stopGcodeBut = Button(tab7, text="Stop Conversion & Upload", width=25,  command = GCstopProg)
+#stopGPhoto=PhotoImage(file="stop-icon.gif")
+#stopGcodeBut.config(image=stopGPhoto)
+stopGcodeBut.place(x=190, y=375)
+
+delGcodeBut = Button(tab7, text="Delete File from SD", width=25,   command = GCdelete)
+delGcodeBut.place(x=20, y=415)
+
+readGcodeBut = Button(tab7, text="Read Files from SD", width=25,   command = partial(GCread, "yes"))
+readGcodeBut.place(x=20, y=455)
+
+playGPhoto=PhotoImage(file="play-icon.gif")
+readGcodeBut = Button(tab7, text="Play Gcode File", width=20,   command = GCplay, image = playGPhoto, compound=LEFT)
+readGcodeBut.place(x=20, y=495)
+
+#revGcodeBut = Button(tab7,  text="REV ",  command = stepRev)
+#revGcodeBut.place(x=180, y=290)
+
+#fwdGcodeBut = Button(tab7,  text="FWD", command = GCstepFwd)
+#fwdGcodeBut.place(x=230, y=290)
+
+saveGCBut = Button(tab7,  text="SAVE DATA",  width=26, command = SaveAndApplyCalibration)
+saveGCBut.place(x=20, y=600)
+
+
+
+
+
+
+
 
 
 
@@ -10765,8 +10989,11 @@ GC_SToff_E6_EntryField.place(x=295, y=205)
 gcodeCurRowLab = Label(tab7, text = "Current Row: ")
 gcodeCurRowLab.place(x=1100, y=21)
 
-gcodStartPosOFfLab = Label(tab7, text = "Start Position Offset")
-gcodStartPosOFfLab.place(x=20, y=180)
+gcodeStartPosOFfLab = Label(tab7, text = "Start Position Offset")
+gcodeStartPosOFfLab.place(x=20, y=180)
+
+gcodeFilenameLab = Label(tab7, text = "Filename:")
+gcodeFilenameLab.place(x=20, y=320)
 
 
 
@@ -10842,8 +11069,6 @@ configfile.place(x=10, y=40)
 ##############################################################################################################################################################
 ### OPEN CAL FILE AND LOAD LIST ##############################################################################################################################
 ##############################################################################################################################################################
-
-
 
 calibration = Listbox(tab2,height=60)
 
@@ -11045,6 +11270,7 @@ J3aDHpar    = calibration.get("183")
 J4aDHpar    = calibration.get("184")
 J5aDHpar    = calibration.get("185")
 J6aDHpar    = calibration.get("186")
+GC_ST_WC    = calibration.get("187")
 
 
 
@@ -11281,6 +11507,7 @@ GC_ST_E3_EntryField.insert(0,str(GC_ST_E3))
 GC_ST_E4_EntryField.insert(0,str(GC_ST_E4))
 GC_ST_E5_EntryField.insert(0,str(GC_ST_E5))
 GC_ST_E6_EntryField.insert(0,str(GC_ST_E6))
+GC_ST_WC_EntryField.insert(0,str(GC_ST_WC))
 GC_SToff_E1_EntryField.insert(0,str(GC_SToff_E1))
 GC_SToff_E2_EntryField.insert(0,str(GC_SToff_E2))
 GC_SToff_E3_EntryField.insert(0,str(GC_SToff_E3))
