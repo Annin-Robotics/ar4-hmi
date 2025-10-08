@@ -1,7 +1,7 @@
 
 Using Source Code
 	- review source code video https://youtu.be/2VGkgCKXVc0
-	1. Install Python 3.10.7 (software support folder) 
+	1. Install Python 3.10.7 
 	2. Open CMD window and navigate to the folder python was installed in.
 	3. Load each of the following Python modules:
 		python -m pip install pyserial
