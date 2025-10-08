@@ -1,3 +1,3 @@
-# ar2 Control Software
-Annin Robotics AR2 Software Library
-- Version 2.0
+# ar3 Control Software
+Annin Robotics AR3 Software Library
+- Version 1.0
