@@ -1,5 +1,5 @@
 ############################################################################
-## Version AR4 6.0 #########################################################
+## Version AR4 6.1 #########################################################
 ############################################################################
 """ AR4 - robot control software
     Copyright (c) 2024, Chris Annin
@@ -61,6 +61,7 @@
   VERSION 5.1 1/22/25 bug fix stopping after calibration from CMD window / added Modbus RS-485
   VERSION 5.2 3/23/25 add auto calibrate for individual axis
   VERSION 6.0 6/12/25 add virtual robot
+  VERSION 6.1 8/29/25 updated accel and decel, auto calibrate & microsteps
 '''
 ##########################################################################
 ##########################################################################
@@ -82,6 +83,7 @@ from tkinter import filedialog as fd
 from functools import partial
 from vtkmodules.tk.vtkTkRenderWindowInteractor import vtkTkRenderWindowInteractor
 import vtkmodules.vtkInteractionStyle as vtkIS
+from queue import Queue
 
 
 
@@ -118,7 +120,7 @@ cropping = False
 
 
 root = Tk()
-root.wm_title("AR4 Software Ver 6.0")
+root.wm_title("AR4 Software Ver 6.1")
 root.iconbitmap(r'AR.ico')
 root.resizable(width=False, height=False)
 root.geometry('1536x792+0+0')
@@ -249,7 +251,7 @@ DHparams = None
 StepMonitors = [0] * 6
 rndSpeed = 0
 estopActive = False
-minSpeedDelay = 500  # µs
+minSpeedDelay = 200  # µs
 speedViolation = "0"
 
 live_jog_lock = threading.Lock()
@@ -542,55 +544,75 @@ def driveMotorsJ(
 
 
     if live_cartesian_lock.locked():
-        virOffset = 1.7
+        virOffset = 4.7
     elif live_tool_lock.locked():
-        virOffset = 2
+        virOffset = 5.1
     else:
-        virOffset = 1.5    
+        virOffset = 4.5    
 
+    # Keep your existing virOffset scaling
     SpeedVal = SpeedVal * virOffset
-    ACCspd = ACCspd * virOffset
-    DCCspd = DCCspd * virOffset
-    ACCramp = ACCramp * virOffset
+    #ACCspd   = ACCspd   * virOffset
+    #DCCspd   = DCCspd   * virOffset
+    #ACCramp  = ACCramp  * virOffset
 
-    ACCStep = HighStep * (ACCspd / 100)
-    NORStep = HighStep * ((100 - ACCspd - DCCspd) / 100)
-    DCCStep = HighStep * (DCCspd / 100)
+    # Steps in each region
+    ACCStep = HighStep * (ACCspd / 100.0)
+    DCCStep = HighStep * (DCCspd / 100.0)
+    NORStep = HighStep - ACCStep - DCCStep
 
-    speedSP = 0
+    # Target total time in microseconds (no 1.2 fudge)
+    speedSP = 0.0
     if SpeedType == "s":
-        speedSP = SpeedVal * 1_000_000 * 1.2
+        speedSP = SpeedVal * 1_000_000.0
     elif SpeedType == "m" and xyzuvw_In and xyzuvw_Out:
         dx = xyzuvw_In[0] - xyzuvw_Out[0]
         dy = xyzuvw_In[1] - xyzuvw_Out[1]
         dz = xyzuvw_In[2] - xyzuvw_Out[2]
-        lineDist = math.sqrt(dx**2 + dy**2 + dz**2)
-        speedSP = (lineDist / SpeedVal) * 1_000_000 * 1.2
+        lineDist = math.sqrt(dx*dx + dy*dy + dz*dz)
+        # seconds = distance / (mm/s)
+        speedSP = (lineDist / SpeedVal) * 1_000_000.0
 
-    if SpeedType in ("s", "m") and speedSP > 0:
-        zeroStepGap = speedSP / HighStep
-        ACCfactor = (100 / ACCramp) / ACCStep if ACCStep else 0
-        DCCfactor = (100 / ACCramp) / DCCStep if DCCStep else 0
-        zeroACCstepInc = zeroStepGap * ACCfactor
-        zeroDCCstepInc = zeroStepGap * DCCfactor
-        zeroACCtime = ACCStep * (zeroStepGap + (ACCStep - 9) * (zeroACCstepInc / 2))
-        zeroNORtime = NORStep * zeroStepGap
-        zeroDCCtime = DCCStep * (zeroStepGap + (DCCStep - 9) * (zeroDCCstepInc / 2))
-        zeroTOTtime = zeroACCtime + zeroNORtime + zeroDCCtime
-        overclockPerc = speedSP / zeroTOTtime
-        calcStepGap = zeroStepGap * overclockPerc
-        if calcStepGap <= minSpeedDelay:
+    # fixed ramp factors (start/end slower than cruise), same as Teensy:
+    # if(ACCramp < 10){ ACCramp = 10; }  k_* = ACCramp / 10
+    if ACCramp < 10.0:
+        ACCramp = 10.0
+    k_acc = ACCramp / 10.0
+    k_dec = ACCramp / 10.0
+
+    # Solve cruise delay for trapezoid
+    if SpeedType in ("s", "m") and speedSP > 0.0:
+        # T = cruise * [ NORStep + (ACCStep*(1+k_acc) + DCCStep*(1+k_dec))/2 ]
+        denom = NORStep + 0.5 * (ACCStep * (1.0 + k_acc) + DCCStep * (1.0 + k_dec))
+        if denom <= 0.0:
+            calcStepGap = speedSP / max(float(HighStep), 1.0)
+        else:
+            calcStepGap = speedSP / denom
+
+        if calcStepGap < minSpeedDelay:
             calcStepGap = minSpeedDelay
+            try:
+                speedViolation = "1"
+            except NameError:
+                pass  # only if your Python sim doesn't use this flag
     elif SpeedType == "p":
-        calcStepGap = minSpeedDelay / (SpeedVal / 100)
+        calcStepGap = minSpeedDelay / (SpeedVal / 100.0)
     else:
         calcStepGap = minSpeedDelay
 
-    calcACCstepInc = (calcStepGap * (100 / ACCramp)) / ACCStep if ACCStep else 0
-    calcDCCstepInc = (calcStepGap * (100 / ACCramp)) / DCCStep if DCCStep else 0
-    calcACCstartDel = (calcACCstepInc * ACCStep) * 2
+    # With cruise known, define start/end delays and per-step increments
+    startDelay = calcStepGap * k_acc  # slower than cruise
+    endDelay   = calcStepGap * k_dec  # slower than cruise
+
+    # Linear ramps
+    calcACCstepInc = ((startDelay - calcStepGap) / ACCStep) if ACCStep > 0.0 else 0.0  # subtract each accel step
+    calcDCCstepInc = ((endDelay   - calcStepGap) / DCCStep) if DCCStep > 0.0 else 0.0  # add each decel step
+
+    # Start delay
+    calcACCstartDel = startDelay
     curDelay = calcACCstartDel
     highStepCur = 0
+
 
     while any(cur[i] < steps[i] for i in range(6)):
         
@@ -602,7 +624,7 @@ def driveMotorsJ(
         else:
             curDelay = calcStepGap
 
-        distDelay = 60
+        distDelay = 30
         disDelayCur = 0
 
         for i in range(6):
@@ -1714,12 +1736,71 @@ def load_stl_into_scene(stl_path, renderer, render_window):
 
 
 
+
 ###############################################################################################################################################################
-### STARTUP DEFS ################################################################################################################# COMMUNICATION DEFS ###
+### STARTUP DEFS ################################################################################################################# 
 ###############################################################################################################################################################
+
+
+
+
+def startup_spinner(root, message="Please wait…"):
+    win = tk.Toplevel(root)
+    win.title("")
+    win.transient(root)
+    win.resizable(False, False)
+    win.grab_set()  # modal
+
+    # Use same icon as main window
+    win.iconbitmap(r'AR.ico')
+
+    ttk.Label(win, text=message, padding=12).pack()
+    pb = ttk.Progressbar(win, mode="indeterminate", length=220)
+    pb.pack(padx=12, pady=(0, 12))
+    pb.start(12)
+
+    # Center on parent
+    root.update_idletasks()
+    x = root.winfo_rootx() + (root.winfo_width() - win.winfo_reqwidth()) // 2
+    y = root.winfo_rooty() + (root.winfo_height() - win.winfo_reqheight()) // 2
+    win.geometry(f"+{x}+{y}")
+
+    win.update_idletasks()
+    return win, pb
+
+
+def startup_with_spinner(root):
+    spinner, pb = startup_spinner(root, "Please Wait.. System Starting")
+    q = Queue()
+
+    def worker():
+        try:
+            q.put(startup())
+        except Exception as e:
+            q.put(e)  # surface errors too
+
+    Thread(target=worker, daemon=True).start()
+
+    # Pump Tk so the spinner paints/animates while we wait
+    while q.empty():
+        root.update()
+        time.sleep(0.01)
+
+    res = q.get()
+    # close spinner
+    try: pb.stop()
+    except: pass
+    try: spinner.grab_release()
+    except: pass
+    spinner.destroy()
+
+    if isinstance(res, Exception):
+        raise res
+    return res
 
 
 def startup():
+  setCom2()
   updateParams()
   time.sleep(.1)
   calExtAxis()
@@ -1727,6 +1808,7 @@ def startup():
   sendPos()
   time.sleep(.1)
   requestPos()
+
 
 
 
@@ -1740,15 +1822,15 @@ def setCom():
     port = "COM" + comPortEntryField.get()  
     baud = 9600    
     ser = serial.Serial(port,baud)
-    almStatusLab.config(text="SYSTEM READY", style="OK.TLabel")
-    almStatusLab2.config(text="SYSTEM READY", style="OK.TLabel")
     Curtime = datetime.datetime.now().strftime("%B %d %Y - %I:%M%p")
     tab8.ElogView.insert(END, Curtime+" - COMMUNICATIONS STARTED WITH TEENSY 4.1 CONTROLLER")
     value=tab8.ElogView.get(0,END)
     pickle.dump(value,open("ErrorLog","wb"))
     time.sleep(.1)
     ser.flushInput()
-    startup()
+    startup_with_spinner(root)
+    almStatusLab.config(text="SYSTEM READY", style="OK.TLabel")
+    almStatusLab2.config(text="SYSTEM READY", style="OK.TLabel")
   except:
     almStatusLab.config(text="UNABLE TO ESTABLISH COMMUNICATIONS WITH TEENSY 4.1 CONTROLLER", style="Alarm.TLabel")
     almStatusLab2.config(text="UNABLE TO ESTABLISH COMMUNICATIONS WITH TEENSY 4.1 CONTROLLER", style="Alarm.TLabel")
@@ -1764,8 +1846,8 @@ def setCom2():
     port = "COM" + com2PortEntryField.get()  
     baud = 9600    
     ser2 = serial.Serial(port,baud)
-    almStatusLab.config(text="SYSTEM READY", style="OK.TLabel")
-    almStatusLab2.config(text="SYSTEM READY", style="OK.TLabel")
+    #almStatusLab.config(text="SYSTEM READY", style="OK.TLabel")
+    #almStatusLab2.config(text="SYSTEM READY", style="OK.TLabel")
     Curtime = datetime.datetime.now().strftime("%B %d %Y - %I:%M%p")
     tab8.ElogView.insert(END, Curtime+" - COMMUNICATIONS STARTED WITH ARDUINO IO BOARD")
     value=tab8.ElogView.get(0,END)
@@ -4601,15 +4683,12 @@ def LiveJointJog(value):
   almStatusLab2.config(text="SYSTEM READY",  style="OK.TLabel")
   checkSpeedVals()
   speedtype = speedOption.get()
-  #dont allow mm/sec - switch to percent
-  if(speedtype == "mm per Sec"):
+  #dont allow mm/sec or sec - switch to percent
+  if(speedtype == "mm per Sec" or speedtype == "Seconds"):
     speedMenu=OptionMenu(tab1, speedOption, "Percent", "Percent", "Seconds", "mm per Sec")
     speedPrefix = "Sp" 
     speedEntryField.delete(0, 'end')
-    speedEntryField.insert(0,"50")
-  #seconds
-  if(speedtype == "Seconds"):
-    speedPrefix = "Ss"
+    speedEntryField.insert(0,"25")
   #percent
   if(speedtype == "Percent"):
     speedPrefix = "Sp"   
@@ -4647,15 +4726,12 @@ def LiveCarJog(value):
   almStatusLab2.config(text="SYSTEM READY",  style="OK.TLabel")
   checkSpeedVals()
   speedtype = speedOption.get()
-  #dont allow mm/sec - switch to percent
-  if(speedtype == "mm per Sec"):
+  #dont allow mm/sec or sec - switch to percent
+  if(speedtype == "mm per Sec" or speedtype == "Seconds"):
     speedMenu=OptionMenu(tab1, speedOption, "Percent", "Percent", "Seconds", "mm per Sec")
     speedPrefix = "Sp" 
     speedEntryField.delete(0, 'end')
-    speedEntryField.insert(0,"50")
-  #seconds
-  if(speedtype == "Seconds"):
-    speedPrefix = "Ss"
+    speedEntryField.insert(0,"25")
   #percent
   if(speedtype == "Percent"):
     speedPrefix = "Sp"   
@@ -7353,6 +7429,7 @@ def CalcLinWayPt(CX,CY,CZ,curWayPt,):
 
 def calRobotAll():
   global VR_angles
+  success = FALSE
   if offlineMode:
     almStatusLab.config(text="Calibration not supported in offline mode", style="Alarm.TLabel")
     almStatusLab2.config(text="Calibration not supported in offline mode", style="Alarm.TLabel")
@@ -7372,7 +7449,8 @@ def calRobotAll():
     VR_angles = [float(J1AngCur), float(J2AngCur), float(J3AngCur), float(J4AngCur), float(J5AngCur), float(J6AngCur)]
     setStepMonitorsVR()
     almStatusLab.config(text=message, style="OK.TLabel")
-    almStatusLab2.config(text=message, style="OK.TLabel") 
+    almStatusLab2.config(text=message, style="OK.TLabel")
+    success = TRUE
   else:
     message = "Auto Calibration Stage 1 Failed - See Log" 
     almStatusLab.config(text=message, style="Alarm.TLabel")
@@ -7383,32 +7461,33 @@ def calRobotAll():
   value=tab8.ElogView.get(0,END)
   pickle.dump(value,open("ErrorLog","wb")) 
   ##### STAGE 2 ########
-  CalStatVal2 = int(J1CalStatVal2)+int(J2CalStatVal2)+int(J3CalStatVal2)+int(J4CalStatVal2)+int(J5CalStatVal2)+int(J6CalStatVal2)
-  if(CalStatVal2>0):
-    command = "LL"+"A"+str(J1CalStatVal2)+"B"+str(J2CalStatVal2)+"C"+str(J3CalStatVal2)+"D"+str(J4CalStatVal2)+"E"+str(J5CalStatVal2)+"F"+str(J6CalStatVal2)+"G"+str(J7CalStatVal2)+"H"+str(J8CalStatVal2)+"I"+str(J9CalStatVal2)+"J"+str(J1calOff)+"K"+str(J2calOff)+"L"+str(J3calOff)+"M"+str(J4calOff)+"N"+str(J5calOff)+"O"+str(J6calOff)+"P"+str(J7calOff)+"Q"+str(J8calOff)+"R"+str(J9calOff)+"\n" 
-    ser.write(command.encode())
-    cmdSentEntryField.delete(0, 'end')
-    cmdSentEntryField.insert(0,command)
-    ser.flushInput()
-    response = str(ser.readline().strip(),'utf-8')
-    cmdRecEntryField.delete(0, 'end')
-    cmdRecEntryField.insert(0,response)
-    if (response[:1] == 'A'):
-      displayPosition(response)  
-      message = "Auto Calibration Stage 2 Successful"
-      VR_angles = [float(J1AngCur), float(J2AngCur), float(J3AngCur), float(J4AngCur), float(J5AngCur), float(J6AngCur)]
-      setStepMonitorsVR()
-      almStatusLab.config(text=message, style="OK.TLabel")
-      almStatusLab2.config(text=message, style="OK.TLabel") 
-    else:
-      message = "Auto Calibration Stage 2 Failed - See Log" 
-      almStatusLab.config(text=message, style="Alarm.TLabel")
-      almStatusLab2.config(text=message, style="Alarm.TLabel")
-      ErrorHandler(response)
-    Curtime = datetime.datetime.now().strftime("%B %d %Y - %I:%M%p")
-    tab8.ElogView.insert(END, Curtime+" - "+message)
-    value=tab8.ElogView.get(0,END)
-    pickle.dump(value,open("ErrorLog","wb")) 
+  if (success == TRUE):
+    CalStatVal2 = int(J1CalStatVal2)+int(J2CalStatVal2)+int(J3CalStatVal2)+int(J4CalStatVal2)+int(J5CalStatVal2)+int(J6CalStatVal2)
+    if(CalStatVal2>0):
+      command = "LL"+"A"+str(J1CalStatVal2)+"B"+str(J2CalStatVal2)+"C"+str(J3CalStatVal2)+"D"+str(J4CalStatVal2)+"E"+str(J5CalStatVal2)+"F"+str(J6CalStatVal2)+"G"+str(J7CalStatVal2)+"H"+str(J8CalStatVal2)+"I"+str(J9CalStatVal2)+"J"+str(J1calOff)+"K"+str(J2calOff)+"L"+str(J3calOff)+"M"+str(J4calOff)+"N"+str(J5calOff)+"O"+str(J6calOff)+"P"+str(J7calOff)+"Q"+str(J8calOff)+"R"+str(J9calOff)+"\n" 
+      ser.write(command.encode())
+      cmdSentEntryField.delete(0, 'end')
+      cmdSentEntryField.insert(0,command)
+      ser.flushInput()
+      response = str(ser.readline().strip(),'utf-8')
+      cmdRecEntryField.delete(0, 'end')
+      cmdRecEntryField.insert(0,response)
+      if (response[:1] == 'A'):
+        displayPosition(response)  
+        message = "Auto Calibration Stage 2 Successful"
+        VR_angles = [float(J1AngCur), float(J2AngCur), float(J3AngCur), float(J4AngCur), float(J5AngCur), float(J6AngCur)]
+        setStepMonitorsVR()
+        almStatusLab.config(text=message, style="OK.TLabel")
+        almStatusLab2.config(text=message, style="OK.TLabel") 
+      else:
+        message = "Auto Calibration Stage 2 Failed - See Log" 
+        almStatusLab.config(text=message, style="Alarm.TLabel")
+        almStatusLab2.config(text=message, style="Alarm.TLabel")
+        ErrorHandler(response)
+      Curtime = datetime.datetime.now().strftime("%B %d %Y - %I:%M%p")
+      tab8.ElogView.insert(END, Curtime+" - "+message)
+      value=tab8.ElogView.get(0,END)
+      pickle.dump(value,open("ErrorLog","wb")) 
 
 
 def calRobotJ1():
@@ -8169,18 +8248,18 @@ def LoadAR4Mk3default():
   J5NegLimEntryField.insert(0,str(105))
   J6PosLimEntryField.insert(0,str(180))
   J6NegLimEntryField.insert(0,str(180))  
-  J1StepDegEntryField.insert(0,str(44.4444))
-  J2StepDegEntryField.insert(0,str(55.5555)) 
-  J3StepDegEntryField.insert(0,str(55.5555)) 
-  J4StepDegEntryField.insert(0,str(49.7777)) 
-  J5StepDegEntryField.insert(0,str(21.8602)) 
-  J6StepDegEntryField.insert(0,str(22.2222))
-  J1DriveMSEntryField.insert(0,str(400))
-  J2DriveMSEntryField.insert(0,str(400))  
-  J3DriveMSEntryField.insert(0,str(400))  
-  J4DriveMSEntryField.insert(0,str(400))  
-  J5DriveMSEntryField.insert(0,str(800))  
-  J6DriveMSEntryField.insert(0,str(400))
+  J1StepDegEntryField.insert(0,str(88.888))
+  J2StepDegEntryField.insert(0,str(111.111)) 
+  J3StepDegEntryField.insert(0,str(111.111)) 
+  J4StepDegEntryField.insert(0,str(99.555)) 
+  J5StepDegEntryField.insert(0,str(43.720)) 
+  J6StepDegEntryField.insert(0,str(44.444))
+  J1DriveMSEntryField.insert(0,str(800))
+  J2DriveMSEntryField.insert(0,str(800))  
+  J3DriveMSEntryField.insert(0,str(800))  
+  J4DriveMSEntryField.insert(0,str(800))  
+  J5DriveMSEntryField.insert(0,str(1600))  
+  J6DriveMSEntryField.insert(0,str(800))
   J1EncCPREntryField.insert(0,str(4000))
   J2EncCPREntryField.insert(0,str(4000))
   J3EncCPREntryField.insert(0,str(4000))
@@ -10448,7 +10527,7 @@ curRowLab = Label(tab1, text = "Current Row:")
 curRowLab.place(x=98, y=120)
 
 
-almStatusLab = Label(tab1, text = "SYSTEM READY - NO ACTIVE ALARMS", style="OK.TLabel")
+almStatusLab = Label(tab1, text = "SYSTEM STARTING - PLEASE WAIT", style="OK.TLabel")
 almStatusLab.place(x=25, y=12)
 
 xbcStatusLab = Label(tab1, text = "Xbox OFF")
@@ -11727,7 +11806,7 @@ ComPortLab.place(x=66, y=90)
 ComPortLab2 = Label(tab2, text = "5v IO BOARD COM PORT:")
 ComPortLab2.place(x=60, y=160)
 
-almStatusLab2 = Label(tab2, text = "SYSTEM READY - NO ACTIVE ALARMS", style="OK.TLabel")
+almStatusLab2 = Label(tab2, text = "SYSTEM STARTING - PLEASE WAIT", style="OK.TLabel")
 almStatusLab2.place(x=25, y=20)
 
 
@@ -14029,9 +14108,9 @@ comPortEntryField.insert(0,str(comPort))
 com2PortEntryField.insert(0,str(com2Port))
 incrementEntryField.insert(0,"10")
 speedEntryField.insert(0,"25")
-ACCspeedField.insert(0,"20")
-DECspeedField.insert(0,"20")
-ACCrampField.insert(0,"100")
+ACCspeedField.insert(0,"15")
+DECspeedField.insert(0,"15")
+ACCrampField.insert(0,"80")
 roundEntryField.insert(0,"0")
 #ProgEntryField.insert(0,(Prog))
 SavePosEntryField.insert(0,"1")
@@ -14386,13 +14465,7 @@ stepDeg = [float(J1StepDeg), float(J2StepDeg), float(J3StepDeg), float(J4StepDeg
 setStepMonitorsVR()
 main_color_var.set(setColor)
 
-setCom()
-time.sleep(.1)
-setCom2()
-time.sleep(.1)
-updateVisOp()
-time.sleep(.1)
-checkAutoBG()
+
 
 
 msg = "ANNIN ROBOTICS SOFTWARE AND DESIGNS ARE FREE:\n\
@@ -14424,7 +14497,7 @@ xboxUse = 0
 
 
 
-
+tab1.after(100, setCom)
 
 tab1.mainloop()
 
