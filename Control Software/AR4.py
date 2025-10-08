@@ -1,8 +1,8 @@
 ############################################################################
-## Version AR4 2.2 #########################################################
+## Version AR4 3.0 #########################################################
 ############################################################################
 """ AR4 - robot control software
-    Copyright (c) 2021, Chris Annin
+    Copyright (c) 2023, Chris Annin
     All rights reserved.
 
     You are free to share, copy and redistribute in any medium
@@ -48,6 +48,7 @@
   VERSION 1.3 6/17/22 removed timeout ser com - modified cal file
   VERSION 2.0 10/1/22 added spline lookahead
   VERSION 2.2 11/6/22 added opencv integrated vision tab
+  VERSION 3.0 2/3/23 move open loop bypass to teensy / add J8 & J9
 
 '''
 ##########################################################################
@@ -71,7 +72,6 @@ import pickle
 import serial
 import time
 import threading
-import queue
 import math
 import tkinter.messagebox
 import webbrowser
@@ -80,7 +80,6 @@ import datetime
 import cv2
 import pathlib
 import os
-import operator
 from numpy import mean
 
 DIR = pathlib.Path(__file__).parent.resolve()
@@ -89,7 +88,7 @@ cropping = False
 
 
 root = Tk()
-root.wm_title("AR4 Software Ver 2.2")
+root.wm_title("AR4 Software Ver 3.0")
 root.iconbitmap(r'AR.ico')
 root.resizable(width=False, height=False)
 root.geometry('1536x792+0+0')
@@ -186,8 +185,12 @@ J5axisLimPos = 105;
 J5axisLimNeg = 105;
 J6axisLimPos = 155;
 J6axisLimNeg = 155;
-TRaxisLimPos = 340;
-TRaxisLimNeg = 0;
+J7axisLimPos = 340;
+J7axisLimNeg = 0;
+J8axisLimPos = 340;
+J8axisLimNeg = 0;
+J9axisLimPos = 340;
+J9axisLimNeg = 0;
 
 #define total axis travel
 J1axisLim = J1axisLimPos + J1axisLimNeg;
@@ -242,7 +245,7 @@ def startup():
   global moveInProc
   moveInProc = 0
   toolFrame()
-  calAxis7()
+  calExtAxis()
   sendPos()
   requestPos()
 
@@ -393,20 +396,6 @@ def stepFwd():
     tab1.progView.selection_clear(0, END)
     selRow += 1
     tab1.progView.select_set(selRow)
-    #time.sleep(.2)
-    #command = "RP\n" 
-    #cmdSentEntryField.delete(0, 'end')
-    #cmdSentEntryField.insert(0,command)
-    #ser.write(command.encode())
-    #ser.flushInput()
-    #time.sleep(.05)
-    #response = str(ser.readline().strip(),'utf-8')
-    #displayPosition(response) 
-    #if (selRow >= tab1.progView.size()): 
-        #curRowEntryField.delete(0, 'end')
-        #curRowEntryField.insert(0,"---") 
-        #tab1.runTrue = 0
-        #time.sleep(.01)
     try:
       selRow = tab1.progView.curselection()[0]
       curRowEntryField.delete(0, 'end')
@@ -429,15 +418,6 @@ def stepRev():
     tab1.progView.selection_clear(0, END)
     selRow -= 1
     tab1.progView.select_set(selRow)
-    time.sleep(.2)
-    command = "RP\n" 
-    cmdSentEntryField.delete(0, 'end')
-    cmdSentEntryField.insert(0,command)
-    ser.write(command.encode())
-    ser.flushInput()
-    time.sleep(.05)
-    response = str(ser.readline().strip(),'utf-8')
-    displayPosition(response) 
     try:
       selRow = tab1.progView.curselection()[0]
       curRowEntryField.delete(0, 'end')
@@ -898,7 +878,9 @@ def executeRow():
     rzIndex = command.find(" Rz ")
     ryIndex = command.find(" Ry ")
     rxIndex = command.find(" Rx ")
-    trIndex = command.find(" Tr ")	
+    J7Index = command.find(" J7 ")
+    J8Index = command.find(" J8 ")
+    J9Index = command.find(" J9 ")	
     SpeedIndex = command.find(" S")
     ACCspdIndex = command.find(" Ac ")
     DECspdIndex = command.find(" Dc ")
@@ -909,15 +891,18 @@ def executeRow():
     zVal = command[zIndex+3:rzIndex]
     rzVal = command[rzIndex+4:ryIndex]
     ryVal = command[ryIndex+4:rxIndex]
-    rxVal = command[rxIndex+4:trIndex]
-    trVal = command[trIndex+4:SpeedIndex]
+    rxVal = command[rxIndex+4:J7Index]
+    J7Val = command[J7Index+4:J8Index]
+    J8Val = command[J8Index+4:J9Index]
+    J9Val = command[J9Index+4:SpeedIndex]
     speedPrefix = command[SpeedIndex+1:SpeedIndex+3]
     Speed = command[SpeedIndex+4:ACCspdIndex]
     ACCspd = command[ACCspdIndex+4:DECspdIndex]
     DECspd = command[DECspdIndex+4:ACCrampIndex]
     ACCramp = command[ACCrampIndex+4:WristConfIndex]
     WC = command[WristConfIndex+3:]
-    command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+    LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+    command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+J7Val+"J8"+J8Val+"J9"+J9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
     cmdSentEntryField.delete(0, 'end')
     cmdSentEntryField.insert(0,command)
     ser.write(command.encode())
@@ -943,7 +928,9 @@ def executeRow():
     rzIndex = command.find(" Rz ")
     ryIndex = command.find(" Ry ")
     rxIndex = command.find(" Rx ")
-    trIndex = command.find(" Tr ")	
+    J7Index = command.find(" J7 ")
+    J8Index = command.find(" J8 ")
+    J9Index = command.find(" J9 ")	
     SpeedIndex = command.find(" S")
     ACCspdIndex = command.find(" Ac ")
     DECspdIndex = command.find(" Dc ")
@@ -961,15 +948,18 @@ def executeRow():
     zVal = str(float(cz) + float(command[zIndex+3:rzIndex]))
     rzVal = str(float(crz) + float(command[rzIndex+4:ryIndex]))
     ryVal = str(float(cry) + float(command[ryIndex+4:rxIndex]))
-    rxVal = str(float(crx) + float(command[rxIndex+4:trIndex]))
-    trVal = command[trIndex+4:SpeedIndex]
+    rxVal = str(float(crx) + float(command[rxIndex+4:J7Index]))
+    J7Val = command[J7Index+4:J8Index]
+    J8Val = command[J8Index+4:J9Index]
+    J9Val = command[J9Index+4:SpeedIndex]
     speedPrefix = command[SpeedIndex+1:SpeedIndex+3]
     Speed = command[SpeedIndex+4:ACCspdIndex]
     ACCspd = command[ACCspdIndex+4:DECspdIndex]
     DECspd = command[DECspdIndex+4:ACCrampIndex]
     ACCramp = command[ACCrampIndex+4:WristConfIndex]
     WC = command[WristConfIndex+3:]
-    command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+    LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+    command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+J7Val+"J8"+J8Val+"J9"+J9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
     cmdSentEntryField.delete(0, 'end')
     cmdSentEntryField.insert(0,command)
     ser.write(command.encode())
@@ -993,7 +983,9 @@ def executeRow():
     rzIndex = command.find(" Rz ")
     ryIndex = command.find(" Ry ")
     rxIndex = command.find(" Rx ")
-    trIndex = command.find(" Tr ")	
+    J7Index = command.find(" J7 ")
+    J8Index = command.find(" J8 ")
+    J9Index = command.find(" J9 ")	
     SpeedIndex = command.find(" S")
     ACCspdIndex = command.find(" Ac ")
     DECspdIndex = command.find(" Dc ")
@@ -1011,8 +1003,10 @@ def executeRow():
     zVal = str(float(cz) + float(command[zIndex+3:rzIndex]))
     rzVal = str(float(crz) + float(command[rzIndex+4:ryIndex]))
     ryVal = str(float(cry) + float(command[ryIndex+4:rxIndex]))
-    rxVal = str(float(crx) + float(command[rxIndex+4:trIndex]))
-    trVal = command[trIndex+4:SpeedIndex]
+    rxVal = str(float(crx) + float(command[rxIndex+4:J7Index]))
+    J7Val = command[J7Index+4:J8Index]
+    J8Val = command[J8Index+4:J9Index]
+    J9Val = command[J9Index+4:SpeedIndex]
     speedPrefix = command[SpeedIndex+1:SpeedIndex+3]
     Speed = command[SpeedIndex+4:ACCspdIndex]
     ACCspd = command[ACCspdIndex+4:DECspdIndex]
@@ -1020,7 +1014,8 @@ def executeRow():
     ACCramp = command[ACCrampIndex+4:WristConfIndex]
     WC = command[WristConfIndex+3:]
     visRot = VisRetAngleEntryField.get()
-    command = "MV"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Vr"+visRot+"\n"
+    LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+    command = "MV"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+J7Val+"J8"+J8Val+"J9"+J9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Vr"+visRot+"Lm"+LoopMode+"\n"
     cmdSentEntryField.delete(0, 'end')
     cmdSentEntryField.insert(0,command)
     ser.write(command.encode())
@@ -1038,7 +1033,9 @@ def executeRow():
       moveInProc == 1
     SPnewInex = command.find("[ PR: ")  
     SPendInex = command.find(" ] [")
-    trIndex = command.find(" Tr ")	
+    J7Index = command.find(" J7 ")
+    J8Index = command.find(" J8 ")
+    J9Index = command.find(" J9 ")		
     SpeedIndex = command.find(" S")
     ACCspdIndex = command.find(" Ac ")
     DECspdIndex = command.find(" Dc ")
@@ -1057,14 +1054,17 @@ def executeRow():
     rzVal = str(float(crz))
     ryVal = str(float(cry))
     rxVal = str(float(crx))
-    trVal = command[trIndex+4:SpeedIndex]
+    J7Val = command[J7Index+4:J8Index]
+    J8Val = command[J8Index+4:J9Index]
+    J9Val = command[J9Index+4:SpeedIndex]
     speedPrefix = command[SpeedIndex+1:SpeedIndex+3]
     Speed = command[SpeedIndex+4:ACCspdIndex]
     ACCspd = command[ACCspdIndex+4:DECspdIndex]
     DECspd = command[DECspdIndex+4:ACCrampIndex]
     ACCramp = command[ACCrampIndex+4:WristConfIndex]
     WC = command[WristConfIndex+3:]
-    command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+    LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+    command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+J7Val+"J8"+J8Val+"J9"+J9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
     cmdSentEntryField.delete(0, 'end')
     cmdSentEntryField.insert(0,command)
     ser.write(command.encode())
@@ -1084,7 +1084,9 @@ def executeRow():
     SPendInex = command.find(" ] offs")
     SP2newInex = command.find("[ *PR: ")  
     SP2endInex = command.find(" ]  [")
-    trIndex = command.find(" Tr ")	
+    J7Index = command.find(" J7 ")
+    J8Index = command.find(" J8 ")
+    J9Index = command.find(" J9 ")
     SpeedIndex = command.find(" S")
     ACCspdIndex = command.find(" Ac ")
     DECspdIndex = command.find(" Dc ")
@@ -1098,14 +1100,17 @@ def executeRow():
     rzVal = str(float(eval("SP_"+SP+"_E4_EntryField").get()) + float(eval("SP_"+SP2+"_E4_EntryField").get()))
     ryVal = str(float(eval("SP_"+SP+"_E5_EntryField").get()) + float(eval("SP_"+SP2+"_E5_EntryField").get()))
     rxVal = str(float(eval("SP_"+SP+"_E6_EntryField").get()) + float(eval("SP_"+SP2+"_E6_EntryField").get()))	
-    trVal = command[trIndex+4:SpeedIndex]
+    J7Val = command[J7Index+4:J8Index]
+    J8Val = command[J8Index+4:J9Index]
+    J9Val = command[J9Index+4:SpeedIndex]
     speedPrefix = command[SpeedIndex+1:SpeedIndex+3]
     Speed = command[SpeedIndex+4:ACCspdIndex]
     ACCspd = command[ACCspdIndex+4:DECspdIndex]
     DECspd = command[DECspdIndex+4:ACCrampIndex]
     ACCramp = command[ACCrampIndex+4:WristConfIndex]
     WC = command[WristConfIndex+3:]
-    command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+    LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+    command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+J7Val+"J8"+J8Val+"J9"+J9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
     cmdSentEntryField.delete(0, 'end')
     cmdSentEntryField.insert(0,command)
     ser.write(command.encode())
@@ -1127,7 +1132,9 @@ def executeRow():
     rzIndex = command.find(" Rz ")
     ryIndex = command.find(" Ry ")
     rxIndex = command.find(" Rx ")
-    trIndex = command.find(" Tr ")	
+    J7Index = command.find(" J7 ")
+    J8Index = command.find(" J8 ")
+    J9Index = command.find(" J9 ")
     SpeedIndex = command.find(" S")
     ACCspdIndex = command.find(" Ac ")
     DECspdIndex = command.find(" Dc ")
@@ -1141,8 +1148,10 @@ def executeRow():
     if (np.sign(float(rzVal)) != np.sign(float(RzcurPos))):
       rzVal=str(float(rzVal)*-1)
     ryVal = command[ryIndex+4:rxIndex]
-    rxVal = command[rxIndex+4:trIndex]
-    trVal = command[trIndex+4:SpeedIndex]
+    rxVal = command[rxIndex+4:J7Index]
+    J7Val = command[J7Index+4:J8Index]
+    J8Val = command[J8Index+4:J9Index]
+    J9Val = command[J9Index+4:SpeedIndex]
     speedPrefix = command[SpeedIndex+1:SpeedIndex+3]
     Speed = command[SpeedIndex+4:ACCspdIndex]
     ACCspd = command[ACCspdIndex+4:DECspdIndex]
@@ -1150,8 +1159,8 @@ def executeRow():
     ACCramp = command[ACCrampIndex+4:RoundingIndex]
     Rounding = command[RoundingIndex+5:WristConfIndex]
     WC = command[WristConfIndex+3:]
-    command = "ML"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"Rnd"+Rounding+"W"+WC+"\n"
-  
+    LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+    command = "ML"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+J7Val+"J8"+J8Val+"J9"+J9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"Rnd"+Rounding+"W"+WC+"Lm"+LoopMode+"\n"
     cmdSentEntryField.delete(0, 'end')
     cmdSentEntryField.insert(0,command)
     ser.write(command.encode())
@@ -1173,7 +1182,9 @@ def executeRow():
     J4Index = command.find(" J4 ")
     J5Index = command.find(" J5 ")
     J6Index = command.find(" J6 ")
-    trIndex = command.find(" Tr ")	
+    J7Index = command.find(" J7 ")
+    J8Index = command.find(" J8 ")
+    J9Index = command.find(" J9 ")
     SpeedIndex = command.find(" S")
     ACCspdIndex = command.find(" Ac ")
     DECspdIndex = command.find(" Dc ")
@@ -1184,15 +1195,18 @@ def executeRow():
     J3Val = command[J3Index+4:J4Index]
     J4Val = command[J4Index+4:J5Index]
     J5Val = command[J5Index+4:J6Index]
-    J6Val = command[J6Index+4:trIndex]
-    trVal = command[trIndex+4:SpeedIndex]
+    J6Val = command[J6Index+4:J7Index]
+    J7Val = command[J7Index+4:J8Index]
+    J8Val = command[J8Index+4:J9Index]
+    J9Val = command[J9Index+4:SpeedIndex]
     speedPrefix = command[SpeedIndex+1:SpeedIndex+3]
     Speed = command[SpeedIndex+4:ACCspdIndex]
     ACCspd = command[ACCspdIndex+4:DECspdIndex]
     DECspd = command[DECspdIndex+4:ACCrampIndex]
     ACCramp = command[ACCrampIndex+4:WristConfIndex]
     WC = command[WristConfIndex+3:]
-    command = "RJ"+"A"+J1Val+"B"+J2Val+"C"+J3Val+"D"+J4Val+"E"+J5Val+"F"+J6Val+"G"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+    LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+    command = "RJ"+"A"+J1Val+"B"+J2Val+"C"+J3Val+"D"+J4Val+"E"+J5Val+"F"+J6Val+"J7"+J7Val+"J8"+J8Val+"J9"+J9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
     cmdSentEntryField.delete(0, 'end')
     cmdSentEntryField.insert(0,command)
     ser.write(command.encode())
@@ -1294,7 +1308,8 @@ def executeRow():
       TCRy = 0
       TCRz = 0
       #move arc command
-      command = "MA"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Ex"+Xend+"Ey"+Yend+"Ez"+Zend+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+      LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+      command = "MA"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Ex"+Xend+"Ey"+Yend+"Ez"+Zend+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
       cmdSentEntryField.delete(0, 'end')
       cmdSentEntryField.insert(0,command)
       ser.write(command.encode())
@@ -1393,13 +1408,15 @@ def executeRow():
       Yend = command[yIndex+3:zIndex]
       Zend = command[zIndex+3:rzIndex]
       #move j to the beginning (second or mid point is start of circle)
-      command = "MJ"+"X"+Xmid+"Y"+Ymid+"Z"+Zmid+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+      LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+      command = "MJ"+"X"+Xmid+"Y"+Ymid+"Z"+Zmid+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
       ser.write(command.encode())
       ser.flushInput()
       time.sleep(.2)
       response = str(ser.readline().strip(),'utf-8')
       #move circle command
-      command = "MC"+"Cx"+xVal+"Cy"+yVal+"Cz"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Bx"+Xmid+"By"+Ymid+"Bz"+Zmid+"Px"+Xend+"Py"+Yend+"Pz"+Zend+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+      LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+      command = "MC"+"Cx"+xVal+"Cy"+yVal+"Cz"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Bx"+Xmid+"By"+Ymid+"Bz"+Zmid+"Px"+Xend+"Py"+Yend+"Pz"+Zend+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
       cmdSentEntryField.delete(0, 'end')
       cmdSentEntryField.insert(0,command)
       ser.write(command.encode())
@@ -1636,16 +1653,16 @@ def xbox():
             RzjogNeg(float(incrementEntryField.get()))    
           elif (mainMode == 3 and event.code == 'ABS_HAT0X' and event.state == -1 and jogMode == 2): 
             RzjogPos(float(incrementEntryField.get()))
-          ##TRACK MODE
+          ##J7 MODE
           elif (event.code == 'BTN_START' and event.state == 1): 
             mainMode = 4
             almStatusLab.config(text='JOGGING TRACK', style="Warn.TLabel")
             almStatusLab2.config(text='JOGGING TRACK', style="Warn.TLabel")
           ##TRACK JOG
           elif (mainMode == 4 and event.code == 'ABS_HAT0X' and event.state == 1): 
-            TrackjogPos(float(incrementEntryField.get()))    
+            J7jogPos(float(incrementEntryField.get()))    
           elif (mainMode == 4 and event.code == 'ABS_HAT0X' and event.state == -1): 
-            TrackjogNeg(float(incrementEntryField.get()))                   
+            J7jogNeg(float(incrementEntryField.get()))                   
           ##TEACH POS          
           elif (event.code == 'BTN_NORTH' and event.state == 1): 
             teachInsertBelSelected()
@@ -1729,6 +1746,9 @@ def J1jogNeg(value):
   global J4AngCur
   global J5AngCur
   global J6AngCur
+  global J7PosCur
+  global J8PosCur
+  global J9PosCur
   checkSpeedVals()
   if xboxUse != 1:
     almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
@@ -1750,7 +1770,8 @@ def J1jogNeg(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "RJ"+"A"+str(float(J1AngCur)-value)+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"G"+TrackcurPos+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+str(float(J1AngCur)-value)+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"J7"+str(J7PosCur)+"J8"+str(J8PosCur)+"J9"+str(J9PosCur)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
   ser.write(command.encode())    
@@ -1770,6 +1791,9 @@ def J1jogPos(value):
   global J4AngCur
   global J5AngCur
   global J6AngCur
+  global J7PosCur
+  global J8PosCur
+  global J9PosCur
   checkSpeedVals()
   if xboxUse != 1:
     almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
@@ -1791,7 +1815,8 @@ def J1jogPos(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "RJ"+"A"+str(float(J1AngCur)+value)+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"G"+TrackcurPos+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+str(float(J1AngCur)+value)+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"J7"+str(J7PosCur)+"J8"+str(J8PosCur)+"J9"+str(J9PosCur)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
   ser.write(command.encode())    
@@ -1811,6 +1836,9 @@ def J2jogNeg(value):
   global J4AngCur
   global J5AngCur
   global J6AngCur
+  global J7PosCur
+  global J8PosCur
+  global J9PosCur
   checkSpeedVals()
   if xboxUse != 1:
     almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
@@ -1832,7 +1860,8 @@ def J2jogNeg(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "RJ"+"A"+J1AngCur+"B"+str(float(J2AngCur)-value)+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"G"+TrackcurPos+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+str(float(J2AngCur)-value)+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"J7"+str(J7PosCur)+"J8"+str(J8PosCur)+"J9"+str(J9PosCur)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
   ser.write(command.encode())    
@@ -1852,6 +1881,9 @@ def J2jogPos(value):
   global J4AngCur
   global J5AngCur
   global J6AngCur
+  global J7PosCur
+  global J8PosCur
+  global J9PosCur
   checkSpeedVals()
   if xboxUse != 1:
     almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
@@ -1873,7 +1905,8 @@ def J2jogPos(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "RJ"+"A"+J1AngCur+"B"+str(float(J2AngCur)+value)+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"G"+TrackcurPos+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+str(float(J2AngCur)+value)+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"J7"+str(J7PosCur)+"J8"+str(J8PosCur)+"J9"+str(J9PosCur)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
   ser.write(command.encode())    
@@ -1893,6 +1926,9 @@ def J3jogNeg(value):
   global J4AngCur
   global J5AngCur
   global J6AngCur
+  global J7PosCur
+  global J8PosCur
+  global J9PosCur
   checkSpeedVals()
   if xboxUse != 1:
     almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
@@ -1914,7 +1950,8 @@ def J3jogNeg(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+str(float(J3AngCur)-value)+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"G"+TrackcurPos+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+str(float(J3AngCur)-value)+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"J7"+str(J7PosCur)+"J8"+str(J8PosCur)+"J9"+str(J9PosCur)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
   ser.write(command.encode())    
@@ -1934,6 +1971,9 @@ def J3jogPos(value):
   global J4AngCur
   global J5AngCur
   global J6AngCur
+  global J7PosCur
+  global J8PosCur
+  global J9PosCur
   checkSpeedVals()
   if xboxUse != 1:
     almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
@@ -1955,7 +1995,8 @@ def J3jogPos(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+str(float(J3AngCur)+value)+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"G"+TrackcurPos+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+str(float(J3AngCur)+value)+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"J7"+str(J7PosCur)+"J8"+str(J8PosCur)+"J9"+str(J9PosCur)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
   ser.write(command.encode())    
@@ -1975,6 +2016,9 @@ def J4jogNeg(value):
   global J4AngCur
   global J5AngCur
   global J6AngCur
+  global J7PosCur
+  global J8PosCur
+  global J9PosCur
   checkSpeedVals()
   if xboxUse != 1:
     almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
@@ -1996,7 +2040,8 @@ def J4jogNeg(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+str(float(J4AngCur)-value)+"E"+J5AngCur+"F"+J6AngCur+"G"+TrackcurPos+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+str(float(J4AngCur)-value)+"E"+J5AngCur+"F"+J6AngCur+"J7"+str(J7PosCur)+"J8"+str(J8PosCur)+"J9"+str(J9PosCur)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
   ser.write(command.encode())    
@@ -2016,6 +2061,9 @@ def J4jogPos(value):
   global J4AngCur
   global J5AngCur
   global J6AngCur
+  global J7PosCur
+  global J8PosCur
+  global J9PosCur
   checkSpeedVals()
   if xboxUse != 1:
     almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
@@ -2037,7 +2085,8 @@ def J4jogPos(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+str(float(J4AngCur)+value)+"E"+J5AngCur+"F"+J6AngCur+"G"+TrackcurPos+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+str(float(J4AngCur)+value)+"E"+J5AngCur+"F"+J6AngCur+"J7"+str(J7PosCur)+"J8"+str(J8PosCur)+"J9"+str(J9PosCur)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
   ser.write(command.encode())    
@@ -2057,6 +2106,9 @@ def J5jogNeg(value):
   global J4AngCur
   global J5AngCur
   global J6AngCur
+  global J7PosCur
+  global J8PosCur
+  global J9PosCur
   checkSpeedVals()
   if xboxUse != 1:
     almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
@@ -2078,7 +2130,8 @@ def J5jogNeg(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+str(float(J5AngCur)-value)+"F"+J6AngCur+"G"+TrackcurPos+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+str(float(J5AngCur)-value)+"F"+J6AngCur+"J7"+str(J7PosCur)+"J8"+str(J8PosCur)+"J9"+str(J9PosCur)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
   ser.write(command.encode())    
@@ -2098,6 +2151,9 @@ def J5jogPos(value):
   global J4AngCur
   global J5AngCur
   global J6AngCur
+  global J7PosCur
+  global J8PosCur
+  global J9PosCur
   checkSpeedVals()
   if xboxUse != 1:
     almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
@@ -2119,7 +2175,8 @@ def J5jogPos(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+str(float(J5AngCur)+value)+"F"+J6AngCur+"G"+TrackcurPos+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+str(float(J5AngCur)+value)+"F"+J6AngCur+"J7"+str(J7PosCur)+"J8"+str(J8PosCur)+"J9"+str(J9PosCur)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)    
@@ -2139,6 +2196,9 @@ def J6jogNeg(value):
   global J4AngCur
   global J5AngCur
   global J6AngCur
+  global J7PosCur
+  global J8PosCur
+  global J9PosCur
   checkSpeedVals()
   if xboxUse != 1:
     almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
@@ -2160,7 +2220,8 @@ def J6jogNeg(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+str(float(J6AngCur)-value)+"G"+TrackcurPos+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+str(float(J6AngCur)-value)+"J7"+str(J7PosCur)+"J8"+str(J8PosCur)+"J9"+str(J9PosCur)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)    
@@ -2180,6 +2241,9 @@ def J6jogPos(value):
   global J4AngCur
   global J5AngCur
   global J6AngCur
+  global J7PosCur
+  global J8PosCur
+  global J9PosCur
   checkSpeedVals()
   if xboxUse != 1:
     almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
@@ -2201,7 +2265,8 @@ def J6jogPos(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+str(float(J6AngCur)+value)+"G"+TrackcurPos+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+str(float(J6AngCur)+value)+"J7"+str(J7PosCur)+"J8"+str(J8PosCur)+"J9"+str(J9PosCur)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)    
@@ -2213,11 +2278,24 @@ def J6jogPos(value):
   else:
     displayPosition(response) 
 
-def LiveCarJog(value):
+
+
+
+def J7jogNeg(value):
   global xboxUse
-  almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
-  almStatusLab2.config(text="SYSTEM READY",  style="OK.TLabel")
+  global J1AngCur
+  global J2AngCur
+  global J3AngCur
+  global J4AngCur
+  global J5AngCur
+  global J6AngCur
+  global J7PosCur
+  global J8PosCur
+  global J9PosCur
   checkSpeedVals()
+  if xboxUse != 1:
+    almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
+    almStatusLab2.config(text="SYSTEM READY",  style="OK.TLabel")
   speedtype = speedOption.get()
   #dont allow mm/sec - switch to percent
   if(speedtype == "mm per Sec"):
@@ -2235,14 +2313,253 @@ def LiveCarJog(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  trVal = TRcurAngEntryField.get()
-  command = "LC"+"V"+str(value)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"J7"+str(float(J7PosCur)-value)+"J8"+str(J8PosCur)+"J9"+str(J9PosCur)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
-  cmdSentEntryField.insert(0,command)
+  cmdSentEntryField.insert(0,command)    
   ser.flushInput()
-  time.sleep(.1)
-  ser.read()
+  time.sleep(.2)
+  response = str(ser.readline().strip(),'utf-8')
+  if (response[:1] == 'E'):
+    ErrorHandler(response)    
+  else:
+    displayPosition(response)
+
+def J7jogPos(value):
+  global xboxUse
+  global J1AngCur
+  global J2AngCur
+  global J3AngCur
+  global J4AngCur
+  global J5AngCur
+  global J6AngCur
+  global J7PosCur
+  global J8PosCur
+  global J9PosCur
+  checkSpeedVals()
+  if xboxUse != 1:
+    almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
+    almStatusLab2.config(text="SYSTEM READY",  style="OK.TLabel")
+  speedtype = speedOption.get()
+  #dont allow mm/sec - switch to percent
+  if(speedtype == "mm per Sec"):
+    speedMenu=OptionMenu(tab1, speedOption, "Percent", "Percent", "Seconds", "mm per Sec")
+    speedPrefix = "Sp" 
+    speedEntryField.delete(0, 'end')
+    speedEntryField.insert(0,"50")
+  #seconds
+  if(speedtype == "Seconds"):
+    speedPrefix = "Ss"
+  #percent
+  if(speedtype == "Percent"):
+    speedPrefix = "Sp"   
+  Speed = speedEntryField.get() 
+  ACCspd = ACCspeedField.get()
+  DECspd = DECspeedField.get()
+  ACCramp = ACCrampField.get()
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"J7"+str(float(J7PosCur)+value)+"J8"+str(J8PosCur)+"J9"+str(J9PosCur)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
+  ser.write(command.encode())
+  cmdSentEntryField.delete(0, 'end')
+  cmdSentEntryField.insert(0,command)    
+  ser.flushInput()
+  time.sleep(.2)
+  response = str(ser.readline().strip(),'utf-8')
+  if (response[:1] == 'E'):
+    ErrorHandler(response)    
+  else:
+    displayPosition(response) 
+
+
+
+def J8jogNeg(value):
+  global xboxUse
+  global J1AngCur
+  global J2AngCur
+  global J3AngCur
+  global J4AngCur
+  global J5AngCur
+  global J6AngCur
+  global J7PosCur
+  global J8PosCur
+  global J9PosCur
+  checkSpeedVals()
+  if xboxUse != 1:
+    almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
+    almStatusLab2.config(text="SYSTEM READY",  style="OK.TLabel")
+  speedtype = speedOption.get()
+  #dont allow mm/sec - switch to percent
+  if(speedtype == "mm per Sec"):
+    speedMenu=OptionMenu(tab1, speedOption, "Percent", "Percent", "Seconds", "mm per Sec")
+    speedPrefix = "Sp" 
+    speedEntryField.delete(0, 'end')
+    speedEntryField.insert(0,"50")
+  #seconds
+  if(speedtype == "Seconds"):
+    speedPrefix = "Ss"
+  #percent
+  if(speedtype == "Percent"):
+    speedPrefix = "Sp"   
+  Speed = speedEntryField.get() 
+  ACCspd = ACCspeedField.get()
+  DECspd = DECspeedField.get()
+  ACCramp = ACCrampField.get()
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"J7"+str(J7PosCur)+"J8"+str(float(J8PosCur)-value)+"J9"+str(J9PosCur)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
+  ser.write(command.encode())
+  cmdSentEntryField.delete(0, 'end')
+  cmdSentEntryField.insert(0,command)    
+  ser.flushInput()
+  time.sleep(.2)
+  response = str(ser.readline().strip(),'utf-8')
+  if (response[:1] == 'E'):
+    ErrorHandler(response)    
+  else:
+    displayPosition(response)
+
+
+
+def J8jogPos(value):
+  global xboxUse
+  global J1AngCur
+  global J2AngCur
+  global J3AngCur
+  global J4AngCur
+  global J5AngCur
+  global J6AngCur
+  global J7PosCur
+  global J8PosCur
+  global J9PosCur
+  checkSpeedVals()
+  if xboxUse != 1:
+    almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
+    almStatusLab2.config(text="SYSTEM READY",  style="OK.TLabel")
+  speedtype = speedOption.get()
+  #dont allow mm/sec - switch to percent
+  if(speedtype == "mm per Sec"):
+    speedMenu=OptionMenu(tab1, speedOption, "Percent", "Percent", "Seconds", "mm per Sec")
+    speedPrefix = "Sp" 
+    speedEntryField.delete(0, 'end')
+    speedEntryField.insert(0,"50")
+  #seconds
+  if(speedtype == "Seconds"):
+    speedPrefix = "Ss"
+  #percent
+  if(speedtype == "Percent"):
+    speedPrefix = "Sp"   
+  Speed = speedEntryField.get() 
+  ACCspd = ACCspeedField.get()
+  DECspd = DECspeedField.get()
+  ACCramp = ACCrampField.get()
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"J7"+str(J7PosCur)+"J8"+str(float(J8PosCur)+value)+"J9"+str(J9PosCur)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
+  ser.write(command.encode())
+  cmdSentEntryField.delete(0, 'end')
+  cmdSentEntryField.insert(0,command)    
+  ser.flushInput()
+  time.sleep(.2)
+  response = str(ser.readline().strip(),'utf-8')
+  if (response[:1] == 'E'):
+    ErrorHandler(response)    
+  else:
+    displayPosition(response)  
+
+
+def J9jogNeg(value):
+  global xboxUse
+  global J1AngCur
+  global J2AngCur
+  global J3AngCur
+  global J4AngCur
+  global J5AngCur
+  global J6AngCur
+  global J7PosCur
+  global J8PosCur
+  global J9PosCur
+  checkSpeedVals()
+  if xboxUse != 1:
+    almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
+    almStatusLab2.config(text="SYSTEM READY",  style="OK.TLabel")
+  speedtype = speedOption.get()
+  #dont allow mm/sec - switch to percent
+  if(speedtype == "mm per Sec"):
+    speedMenu=OptionMenu(tab1, speedOption, "Percent", "Percent", "Seconds", "mm per Sec")
+    speedPrefix = "Sp" 
+    speedEntryField.delete(0, 'end')
+    speedEntryField.insert(0,"50")
+  #seconds
+  if(speedtype == "Seconds"):
+    speedPrefix = "Ss"
+  #percent
+  if(speedtype == "Percent"):
+    speedPrefix = "Sp"   
+  Speed = speedEntryField.get() 
+  ACCspd = ACCspeedField.get()
+  DECspd = DECspeedField.get()
+  ACCramp = ACCrampField.get()
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"J7"+str(J7PosCur)+"J8"+str(J8PosCur)+"J9"+str(float(J9PosCur)-value)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
+  ser.write(command.encode())
+  cmdSentEntryField.delete(0, 'end')
+  cmdSentEntryField.insert(0,command)    
+  ser.flushInput()
+  time.sleep(.2)
+  response = str(ser.readline().strip(),'utf-8')
+  if (response[:1] == 'E'):
+    ErrorHandler(response)    
+  else:
+    displayPosition(response)
+
+
+
+def J9jogPos(value):
+  global xboxUse
+  global J1AngCur
+  global J2AngCur
+  global J3AngCur
+  global J4AngCur
+  global J5AngCur
+  global J6AngCur
+  global J7PosCur
+  global J8PosCur
+  global J9PosCur
+  checkSpeedVals()
+  if xboxUse != 1:
+    almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
+    almStatusLab2.config(text="SYSTEM READY",  style="OK.TLabel")
+  speedtype = speedOption.get()
+  #dont allow mm/sec - switch to percent
+  if(speedtype == "mm per Sec"):
+    speedMenu=OptionMenu(tab1, speedOption, "Percent", "Percent", "Seconds", "mm per Sec")
+    speedPrefix = "Sp" 
+    speedEntryField.delete(0, 'end')
+    speedEntryField.insert(0,"50")
+  #seconds
+  if(speedtype == "Seconds"):
+    speedPrefix = "Ss"
+  #percent
+  if(speedtype == "Percent"):
+    speedPrefix = "Sp"   
+  Speed = speedEntryField.get() 
+  ACCspd = ACCspeedField.get()
+  DECspd = DECspeedField.get()
+  ACCramp = ACCrampField.get()
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"J7"+str(J7PosCur)+"J8"+str(J8PosCur)+"J9"+str(float(J9PosCur)+value)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
+  ser.write(command.encode())
+  cmdSentEntryField.delete(0, 'end')
+  cmdSentEntryField.insert(0,command)    
+  ser.flushInput()
+  time.sleep(.2)
+  response = str(ser.readline().strip(),'utf-8')
+  if (response[:1] == 'E'):
+    ErrorHandler(response)    
+  else:
+    displayPosition(response)        
+
+
+
 
 def LiveJointJog(value):
   global xboxUse
@@ -2266,14 +2583,53 @@ def LiveJointJog(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  trVal = TRcurAngEntryField.get()
-  command = "LJ"+"V"+str(value)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "LJ"+"V"+str(value)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
   ser.flushInput()
   time.sleep(.1)
-  ser.read()  
+  ser.read()
+
+
+
+
+
+
+def LiveCarJog(value):
+  global xboxUse
+  almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
+  almStatusLab2.config(text="SYSTEM READY",  style="OK.TLabel")
+  checkSpeedVals()
+  speedtype = speedOption.get()
+  #dont allow mm/sec - switch to percent
+  if(speedtype == "mm per Sec"):
+    speedMenu=OptionMenu(tab1, speedOption, "Percent", "Percent", "Seconds", "mm per Sec")
+    speedPrefix = "Sp" 
+    speedEntryField.delete(0, 'end')
+    speedEntryField.insert(0,"50")
+  #seconds
+  if(speedtype == "Seconds"):
+    speedPrefix = "Ss"
+  #percent
+  if(speedtype == "Percent"):
+    speedPrefix = "Sp"   
+  Speed = speedEntryField.get() 
+  ACCspd = ACCspeedField.get()
+  DECspd = DECspeedField.get()
+  ACCramp = ACCrampField.get()
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "LC"+"V"+str(value)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
+  ser.write(command.encode())
+  cmdSentEntryField.delete(0, 'end')
+  cmdSentEntryField.insert(0,command)
+  ser.flushInput()
+  time.sleep(.1)
+  ser.read()
+
+
+  
 
 def LiveToolJog(value):
   global xboxUse
@@ -2297,8 +2653,8 @@ def LiveToolJog(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  trVal = TRcurAngEntryField.get()
-  command = "LT"+"V"+str(value)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "LT"+"V"+str(value)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
@@ -2321,7 +2677,7 @@ def StopJog(self):
       displayPosition(response)
 
 
-def TrackjogNeg(value):
+def J7jogNeg(value):
   global xboxUse
   checkSpeedVals()
   if xboxUse != 1:
@@ -2344,7 +2700,8 @@ def TrackjogNeg(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"G"+str(float(TrackcurPos)-value)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"J7"+str(float(J7PosCur)-value)+"J8"+str(J8PosCur)+"J9"+str(J9PosCur)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n" 
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)    
@@ -2356,7 +2713,7 @@ def TrackjogNeg(value):
   else:
     displayPosition(response)
 
-def TrackjogPos(value):
+def J7jogPos(value):
   global xboxUse
   checkSpeedVals()
   if xboxUse != 1:
@@ -2379,7 +2736,8 @@ def TrackjogPos(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"G"+str(float(TrackcurPos)+value)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"J7"+str(float(J7PosCur)+value)+"J8"+str(J8PosCur)+"J9"+str(J9PosCur)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n" 
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)    
@@ -2391,16 +2749,20 @@ def TrackjogPos(value):
   else:
     displayPosition(response) 
 
-def TRstilljogNeg(value):
+
+def J8jogNeg(value):
   global xboxUse
   checkSpeedVals()
   if xboxUse != 1:
     almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
     almStatusLab2.config(text="SYSTEM READY",  style="OK.TLabel")
   speedtype = speedOption.get()
-  #mm/sec
+  #dont allow mm/sec - switch to percent
   if(speedtype == "mm per Sec"):
-    speedPrefix = "Sm" 
+    speedMenu=OptionMenu(tab1, speedOption, "Percent", "Percent", "Seconds", "mm per Sec")
+    speedPrefix = "Sp" 
+    speedEntryField.delete(0, 'end')
+    speedEntryField.insert(0,"50")
   #seconds
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
@@ -2411,63 +2773,129 @@ def TRstilljogNeg(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  xVal = XcurPos
-  yVal = str(float(YcurPos) + value)
-  zVal = ZcurPos
-  rzVal = RzcurPos
-  ryVal = RycurPos
-  rxVal = RxcurPos
-  trVal = str(float(TrackcurPos) - value)
-  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"J7"+str(J7PosCur)+"J8"+str(float(J8PosCur)-value)+"J9"+str(J9PosCur)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n" 
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
-  cmdSentEntryField.insert(0,command)
+  cmdSentEntryField.insert(0,command)    
   ser.flushInput()
   time.sleep(.2)
   response = str(ser.readline().strip(),'utf-8')
   if (response[:1] == 'E'):
-    ErrorHandler(response)   
+    ErrorHandler(response)    
+  else:
+    displayPosition(response)
+
+def J8jogPos(value):
+  global xboxUse
+  checkSpeedVals()
+  if xboxUse != 1:
+    almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
+    almStatusLab2.config(text="SYSTEM READY",  style="OK.TLabel")
+  speedtype = speedOption.get()
+  #dont allow mm/sec - switch to percent
+  if(speedtype == "mm per Sec"):
+    speedMenu=OptionMenu(tab1, speedOption, "Percent", "Percent", "Seconds", "mm per Sec")
+    speedPrefix = "Sp" 
+    speedEntryField.delete(0, 'end')
+    speedEntryField.insert(0,"50")
+  #seconds
+  if(speedtype == "Seconds"):
+    speedPrefix = "Ss"
+  #percent
+  if(speedtype == "Percent"):
+    speedPrefix = "Sp"   
+  Speed = speedEntryField.get() 
+  ACCspd = ACCspeedField.get()
+  DECspd = DECspeedField.get()
+  ACCramp = ACCrampField.get()
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"J7"+str(J7PosCur)+"J8"+str(float(J8PosCur)+value)+"J9"+str(J9PosCur)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n" 
+  ser.write(command.encode())
+  cmdSentEntryField.delete(0, 'end')
+  cmdSentEntryField.insert(0,command)    
+  ser.flushInput()
+  time.sleep(.2)
+  response = str(ser.readline().strip(),'utf-8')
+  if (response[:1] == 'E'):
+    ErrorHandler(response)    
+  else:
+    displayPosition(response) 
+
+
+
+def J9jogNeg(value):
+  global xboxUse
+  checkSpeedVals()
+  if xboxUse != 1:
+    almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
+    almStatusLab2.config(text="SYSTEM READY",  style="OK.TLabel")
+  speedtype = speedOption.get()
+  #dont allow mm/sec - switch to percent
+  if(speedtype == "mm per Sec"):
+    speedMenu=OptionMenu(tab1, speedOption, "Percent", "Percent", "Seconds", "mm per Sec")
+    speedPrefix = "Sp" 
+    speedEntryField.delete(0, 'end')
+    speedEntryField.insert(0,"50")
+  #seconds
+  if(speedtype == "Seconds"):
+    speedPrefix = "Ss"
+  #percent
+  if(speedtype == "Percent"):
+    speedPrefix = "Sp"   
+  Speed = speedEntryField.get() 
+  ACCspd = ACCspeedField.get()
+  DECspd = DECspeedField.get()
+  ACCramp = ACCrampField.get()
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"J7"+str(J7PosCur)+"J8"+str(J8PosCur)+"J9"+str(float(J9PosCur)-value)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n" 
+  ser.write(command.encode())
+  cmdSentEntryField.delete(0, 'end')
+  cmdSentEntryField.insert(0,command)    
+  ser.flushInput()
+  time.sleep(.2)
+  response = str(ser.readline().strip(),'utf-8')
+  if (response[:1] == 'E'):
+    ErrorHandler(response)    
+  else:
+    displayPosition(response)
+
+def J9jogPos(value):
+  global xboxUse
+  checkSpeedVals()
+  if xboxUse != 1:
+    almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
+    almStatusLab2.config(text="SYSTEM READY",  style="OK.TLabel")
+  speedtype = speedOption.get()
+  #dont allow mm/sec - switch to percent
+  if(speedtype == "mm per Sec"):
+    speedMenu=OptionMenu(tab1, speedOption, "Percent", "Percent", "Seconds", "mm per Sec")
+    speedPrefix = "Sp" 
+    speedEntryField.delete(0, 'end')
+    speedEntryField.insert(0,"50")
+  #seconds
+  if(speedtype == "Seconds"):
+    speedPrefix = "Ss"
+  #percent
+  if(speedtype == "Percent"):
+    speedPrefix = "Sp"   
+  Speed = speedEntryField.get() 
+  ACCspd = ACCspeedField.get()
+  DECspd = DECspeedField.get()
+  ACCramp = ACCrampField.get()
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "RJ"+"A"+J1AngCur+"B"+J2AngCur+"C"+J3AngCur+"D"+J4AngCur+"E"+J5AngCur+"F"+J6AngCur+"J7"+str(J7PosCur)+"J8"+str(J8PosCur)+"J9"+str(float(J9PosCur)+value)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n" 
+  ser.write(command.encode())
+  cmdSentEntryField.delete(0, 'end')
+  cmdSentEntryField.insert(0,command)    
+  ser.flushInput()
+  time.sleep(.2)
+  response = str(ser.readline().strip(),'utf-8')
+  if (response[:1] == 'E'):
+    ErrorHandler(response)    
   else:
     displayPosition(response)     
-
-def TRstilljogPos(value):
-  global xboxUse
-  checkSpeedVals()
-  if xboxUse != 1:
-    almStatusLab.config(text="SYSTEM READY",  style="OK.TLabel")
-    almStatusLab2.config(text="SYSTEM READY",  style="OK.TLabel")
-  speedtype = speedOption.get()
-  #mm/sec
-  if(speedtype == "mm per Sec"):
-    speedPrefix = "Sm" 
-  #seconds
-  if(speedtype == "Seconds"):
-    speedPrefix = "Ss"
-  #percent
-  if(speedtype == "Percent"):
-    speedPrefix = "Sp"   
-  Speed = speedEntryField.get() 
-  ACCspd = ACCspeedField.get()
-  DECspd = DECspeedField.get()
-  ACCramp = ACCrampField.get()
-  xVal = XcurPos
-  yVal = str(float(YcurPos) - value)
-  zVal = ZcurPos
-  rzVal = RzcurPos
-  ryVal = RycurPos
-  rxVal = RxcurPos
-  trVal = str(float(TrackcurPos) + value)
-  command = "ML"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
-  ser.write(command.encode())
-  cmdSentEntryField.delete(0, 'end')
-  cmdSentEntryField.insert(0,command)
-  ser.flushInput()
-  time.sleep(.2)
-  response = str(ser.readline().strip(),'utf-8')
-  if (response[:1] == 'E'):
-    ErrorHandler(response)   
-  else:
-    displayPosition(response)       
+    
 
 
 def XjogNeg(value):
@@ -2496,8 +2924,11 @@ def XjogNeg(value):
   rzVal = RzcurPos
   ryVal = RycurPos
   rxVal = RxcurPos
-  trVal = TRcurAngEntryField.get()
-  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  j7Val = str(J7PosCur)
+  j8Val = str(J8PosCur)
+  j9Val = str(J9PosCur)
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+j7Val+"J8"+j8Val+"J9"+j9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
@@ -2535,8 +2966,11 @@ def YjogNeg(value):
   rzVal = RzcurPos
   ryVal = RycurPos
   rxVal = RxcurPos
-  trVal = TRcurAngEntryField.get()
-  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  j7Val = str(J7PosCur)
+  j8Val = str(J8PosCur)
+  j9Val = str(J9PosCur)
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+j7Val+"J8"+j8Val+"J9"+j9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
@@ -2574,8 +3008,11 @@ def ZjogNeg(value):
   rzVal = RzcurPos
   ryVal = RycurPos
   rxVal = RxcurPos
-  trVal = TRcurAngEntryField.get()
-  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  j7Val = str(J7PosCur)
+  j8Val = str(J8PosCur)
+  j9Val = str(J9PosCur)
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+j7Val+"J8"+j8Val+"J9"+j9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
@@ -2613,8 +3050,11 @@ def RxjogNeg(value):
   rzVal = RzcurPos
   ryVal = RycurPos
   rxVal =  str(float(RxcurPos) - value)
-  trVal = TRcurAngEntryField.get()
-  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  j7Val = str(J7PosCur)
+  j8Val = str(J8PosCur)
+  j9Val = str(J9PosCur)
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+j7Val+"J8"+j8Val+"J9"+j9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
@@ -2652,8 +3092,11 @@ def RyjogNeg(value):
   rzVal = RzcurPos
   ryVal = str(float(RycurPos) - value)
   rxVal =  RxcurPos
-  trVal = TRcurAngEntryField.get()
-  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  j7Val = str(J7PosCur)
+  j8Val = str(J8PosCur)
+  j9Val = str(J9PosCur)
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+j7Val+"J8"+j8Val+"J9"+j9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
@@ -2691,8 +3134,11 @@ def RzjogNeg(value):
   rzVal =  str(float(RzcurPos) - value)
   ryVal = RycurPos
   rxVal = RxcurPos
-  trVal = TRcurAngEntryField.get()
-  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  j7Val = str(J7PosCur)
+  j8Val = str(J8PosCur)
+  j9Val = str(J9PosCur)
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+j7Val+"J8"+j8Val+"J9"+j9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
@@ -2730,8 +3176,11 @@ def XjogPos(value):
   rzVal = RzcurPos
   ryVal = RycurPos
   rxVal = RxcurPos
-  trVal = TRcurAngEntryField.get()
-  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  j7Val = str(J7PosCur)
+  j8Val = str(J8PosCur)
+  j9Val = str(J9PosCur)
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+j7Val+"J8"+j8Val+"J9"+j9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
@@ -2769,8 +3218,11 @@ def YjogPos(value):
   rzVal = RzcurPos
   ryVal = RycurPos
   rxVal = RxcurPos
-  trVal = TRcurAngEntryField.get()
-  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  j7Val = str(J7PosCur)
+  j8Val = str(J8PosCur)
+  j9Val = str(J9PosCur)
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+j7Val+"J8"+j8Val+"J9"+j9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
@@ -2809,8 +3261,11 @@ def ZjogPos(value):
   rzVal = RzcurPos
   ryVal = RycurPos
   rxVal = RxcurPos
-  trVal = TRcurAngEntryField.get()
-  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  j7Val = str(J7PosCur)
+  j8Val = str(J8PosCur)
+  j9Val = str(J9PosCur)
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+j7Val+"J8"+j8Val+"J9"+j9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
@@ -2848,8 +3303,11 @@ def RxjogPos(value):
   rzVal = RzcurPos
   ryVal = RycurPos
   rxVal =  str(float(RxcurPos) + value)
-  trVal = TRcurAngEntryField.get()
-  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  j7Val = str(J7PosCur)
+  j8Val = str(J8PosCur)
+  j9Val = str(J9PosCur)
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+j7Val+"J8"+j8Val+"J9"+j9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
@@ -2887,8 +3345,11 @@ def RyjogPos(value):
   rzVal = RzcurPos
   ryVal = str(float(RycurPos) + value)
   rxVal =  RxcurPos
-  trVal = TRcurAngEntryField.get()
-  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  j7Val = str(J7PosCur)
+  j8Val = str(J8PosCur)
+  j9Val = str(J9PosCur)
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+j7Val+"J8"+j8Val+"J9"+j9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
@@ -2926,8 +3387,11 @@ def RzjogPos(value):
   rzVal =  str(float(RzcurPos) + value)
   ryVal = RycurPos
   rxVal = RxcurPos
-  trVal = TRcurAngEntryField.get()
-  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"\n"
+  j7Val = str(J7PosCur)
+  j8Val = str(J8PosCur)
+  j9Val = str(J9PosCur)
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "MJ"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"J7"+j7Val+"J8"+j8Val+"J9"+j9Val+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
@@ -2964,7 +3428,8 @@ def TXjogNeg(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "JTX1"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "JTX1"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
@@ -3001,7 +3466,8 @@ def TYjogNeg(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "JTY1"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "JTY1"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)    
@@ -3036,7 +3502,8 @@ def TZjogNeg(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "JTZ1"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "JTZ1"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)    
@@ -3072,7 +3539,8 @@ def TRxjogNeg(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "JTW1"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "JTW1"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)    
@@ -3107,7 +3575,8 @@ def TRyjogNeg(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "JTP1"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "JTP1"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)    
@@ -3142,7 +3611,8 @@ def TRzjogNeg(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "JTR1"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "JTR1"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)    
@@ -3177,7 +3647,8 @@ def TXjogPos(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "JTX0"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "JTX0"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)    
@@ -3212,7 +3683,8 @@ def TYjogPos(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "JTY0"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "JTY0"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)    
@@ -3247,7 +3719,8 @@ def TZjogPos(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "JTZ0"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "JTZ0"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)    
@@ -3282,7 +3755,8 @@ def TRxjogPos(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "JTW0"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "JTW0"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)    
@@ -3317,7 +3791,8 @@ def TRyjogPos(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "JTP0"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "JTP0"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)    
@@ -3352,7 +3827,8 @@ def TRzjogPos(value):
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
-  command = "JTR0"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"\n"
+  LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  command = "JTR0"+str(value)+speedPrefix+Speed+"G"+ACCspd+"H"+DECspd+"I"+ACCramp+"Lm"+LoopMode+"\n"
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)    
@@ -3379,7 +3855,7 @@ def teachInsertBelSelected():
   global RycurPos
   global RzcurPos
   global WC
-  global TrackcurPos
+  global J7PosCur
   checkSpeedVals()
   try:
     selRow = tab1.progView.curselection()[0]
@@ -3403,7 +3879,7 @@ def teachInsertBelSelected():
   movetype = options.get()
   if(movetype == "OFF J"):
     movetype = movetype+" [ PR: "+str(SavePosEntryField.get())+" ]"
-    newPos = movetype + " [*] X "+XcurPos+" Y "+YcurPos+" Z "+ZcurPos+" Rz "+RzcurPos+" Ry "+RycurPos+" Rx "+RxcurPos+" Tr "+TrackcurPos+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC              
+    newPos = movetype + " [*] X "+XcurPos+" Y "+YcurPos+" Z "+ZcurPos+" Rz "+RzcurPos+" Ry "+RycurPos+" Rx "+RxcurPos+" J7 "+str(J7PosCur)+" J8 "+str(J8PosCur)+" J9 "+str(J9PosCur)+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC              
     tab1.progView.insert(selRow, newPos) 
     tab1.progView.selection_clear(0, END)
     tab1.progView.select_set(selRow)
@@ -3411,7 +3887,7 @@ def teachInsertBelSelected():
     pickle.dump(value,open(ProgEntryField.get(),"wb"))
   if(movetype == "Move Vis"):
     movetype = movetype+" [ PR: "+str(SavePosEntryField.get())+" ]"
-    newPos = movetype + " [*] X "+XcurPos+" Y "+YcurPos+" Z "+ZcurPos+" Rz "+RzcurPos+" Ry "+RycurPos+" Rx "+RxcurPos+" Tr "+TrackcurPos+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC              
+    newPos = movetype + " [*] X "+XcurPos+" Y "+YcurPos+" Z "+ZcurPos+" Rz "+RzcurPos+" Ry "+RycurPos+" Rx "+RxcurPos+" J7 "+str(J7PosCur)+" J8 "+str(J8PosCur)+" J9 "+str(J9PosCur)+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC              
     tab1.progView.insert(selRow, newPos) 
     tab1.progView.selection_clear(0, END)
     tab1.progView.select_set(selRow)
@@ -3419,7 +3895,7 @@ def teachInsertBelSelected():
     pickle.dump(value,open(ProgEntryField.get(),"wb"))  
   elif(movetype == "Move PR"):
     movetype = movetype+" [ PR: "+str(SavePosEntryField.get())+" ]"
-    newPos = movetype + " [*]"+" Tr "+TrackcurPos+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC            
+    newPos = movetype + " [*]"+" J7 "+str(J7PosCur)+" J8 "+str(J8PosCur)+" J9 "+str(J9PosCur)+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC          
     tab1.progView.insert(selRow, newPos) 
     tab1.progView.selection_clear(0, END)
     tab1.progView.select_set(selRow)
@@ -3427,49 +3903,49 @@ def teachInsertBelSelected():
     pickle.dump(value,open(ProgEntryField.get(),"wb"))
   elif(movetype == "OFF PR "):
     movetype = movetype+" [ PR: "+str(SavePosEntryField.get())+" ] offs [ *PR: "+str(int(SavePosEntryField.get())+1)+" ] "
-    newPos = movetype + " [*]"+" Tr "+TrackcurPos+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC
+    newPos = movetype + " [*]"+" J7 "+str(J7PosCur)+" J8 "+str(J8PosCur)+" J9 "+str(J9PosCur)+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC
     tab1.progView.insert(selRow, newPos) 
     tab1.progView.selection_clear(0, END)
     tab1.progView.select_set(selRow)
     value=tab1.progView.get(0,END)
     pickle.dump(value,open(ProgEntryField.get(),"wb"))
   elif(movetype == "Move J"):
-    newPos = movetype + " [*] X "+XcurPos+" Y "+YcurPos+" Z "+ZcurPos+" Rz "+RzcurPos+" Ry "+RycurPos+" Rx "+RxcurPos+" Tr "+TrackcurPos+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC              
+    newPos = movetype + " [*] X "+XcurPos+" Y "+YcurPos+" Z "+ZcurPos+" Rz "+RzcurPos+" Ry "+RycurPos+" Rx "+RxcurPos+" J7 "+str(J7PosCur)+" J8 "+str(J8PosCur)+" J9 "+str(J9PosCur)+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC              
     tab1.progView.insert(selRow, newPos)
     tab1.progView.selection_clear(0, END)
     tab1.progView.select_set(selRow)
     value=tab1.progView.get(0,END)
     pickle.dump(value,open(ProgEntryField.get(),"wb"))
   elif(movetype == "Move L"):
-    newPos = movetype + " [*] X "+XcurPos+" Y "+YcurPos+" Z "+ZcurPos+" Rz "+RzcurPos+" Ry "+RycurPos+" Rx "+RxcurPos+" Tr "+TrackcurPos+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" Rnd "+Rounding+" $ "+WC             
+    newPos = movetype + " [*] X "+XcurPos+" Y "+YcurPos+" Z "+ZcurPos+" Rz "+RzcurPos+" Ry "+RycurPos+" Rx "+RxcurPos+" J7 "+str(J7PosCur)+" J8 "+str(J8PosCur)+" J9 "+str(J9PosCur)+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" Rnd "+Rounding+" $ "+WC 
     tab1.progView.insert(selRow, newPos) 
     tab1.progView.selection_clear(0, END)
     tab1.progView.select_set(selRow)
     value=tab1.progView.get(0,END)
     pickle.dump(value,open(ProgEntryField.get(),"wb"))
   elif(movetype == "Move R"):
-    newPos = movetype + " [*] J1 "+J1AngCur+" J2 "+J2AngCur+" J3 "+J3AngCur+" J4 "+J4AngCur+" J5 "+J5AngCur+" J6 "+J6AngCur+" Tr "+TrackcurPos+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC              
+    newPos = movetype + " [*] J1 "+J1AngCur+" J2 "+J2AngCur+" J3 "+J3AngCur+" J4 "+J4AngCur+" J5 "+J5AngCur+" J6 "+J6AngCur+" J7 "+str(J7PosCur)+" J8 "+str(J8PosCur)+" J9 "+str(J9PosCur)+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC            
     tab1.progView.insert(selRow, newPos)
     tab1.progView.selection_clear(0, END)
     tab1.progView.select_set(selRow)
     value=tab1.progView.get(0,END)
     pickle.dump(value,open(ProgEntryField.get(),"wb"))
   elif(movetype == "Move A Mid"):
-    newPos = movetype + " [*] X "+XcurPos+" Y "+YcurPos+" Z "+ZcurPos+" Rz "+RzcurPos+" Ry "+RycurPos+" Rx "+RxcurPos+" Tr "+TrackcurPos+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC             
+    newPos = movetype + " [*] X "+XcurPos+" Y "+YcurPos+" Z "+ZcurPos+" Rz "+RzcurPos+" Ry "+RycurPos+" Rx "+RxcurPos+" J7 "+str(J7PosCur)+" J8 "+str(J8PosCur)+" J9 "+str(J9PosCur)+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC             
     tab1.progView.insert(selRow, newPos) 
     tab1.progView.selection_clear(0, END)
     tab1.progView.select_set(selRow)
     value=tab1.progView.get(0,END)
     pickle.dump(value,open(ProgEntryField.get(),"wb"))	
   elif(movetype == "Move A End"):
-    newPos = movetype + " [*] X "+XcurPos+" Y "+YcurPos+" Z "+ZcurPos+" Rz "+RzcurPos+" Ry "+RycurPos+" Rx "+RxcurPos+" Tr "+TrackcurPos+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC             
+    newPos = movetype + " [*] X "+XcurPos+" Y "+YcurPos+" Z "+ZcurPos+" Rz "+RzcurPos+" Ry "+RycurPos+" Rx "+RxcurPos+" J7 "+str(J7PosCur)+" J8 "+str(J8PosCur)+" J9 "+str(J9PosCur)+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC             
     tab1.progView.insert(selRow, newPos) 
     tab1.progView.selection_clear(0, END)
     tab1.progView.select_set(selRow)
     value=tab1.progView.get(0,END)
     pickle.dump(value,open(ProgEntryField.get(),"wb"))	
   elif(movetype == "Move C Center"):
-    newPos = movetype + " [*] X "+XcurPos+" Y "+YcurPos+" Z "+ZcurPos+" Rz "+RzcurPos+" Ry "+RycurPos+" Rx "+RxcurPos+" Tr "+TrackcurPos+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC              
+    newPos = movetype + " [*] X "+XcurPos+" Y "+YcurPos+" Z "+ZcurPos+" Rz "+RzcurPos+" Ry "+RycurPos+" Rx "+RxcurPos+" J7 "+str(J7PosCur)+" J8 "+str(J8PosCur)+" J9 "+str(J9PosCur)+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC              
     tab1.progView.insert(selRow, newPos) 
     tab1.progView.selection_clear(0, END)
     tab1.progView.select_set(selRow)
@@ -4180,7 +4656,7 @@ def CalcLinWayPt(CX,CY,CZ,curWayPt,):
 
 def calRobotAll():
   ##### STAGE 1 ########
-  command = "LL"+"A"+str(J1CalStatVal)+"B"+str(J2CalStatVal)+"C"+str(J3CalStatVal)+"D"+str(J4CalStatVal)+"E"+str(J5CalStatVal)+"F"+str(J6CalStatVal)+"G"+str(J1calOff)+"H"+str(J2calOff)+"I"+str(J3calOff)+"J"+str(J4calOff)+"K"+str(J5calOff)+"L"+str(J6calOff)+"\n"
+  command = "LL"+"A"+str(J1CalStatVal)+"B"+str(J2CalStatVal)+"C"+str(J3CalStatVal)+"D"+str(J4CalStatVal)+"E"+str(J5CalStatVal)+"F"+str(J6CalStatVal)+"G0H0I0"+"J"+str(J1calOff)+"K"+str(J2calOff)+"L"+str(J3calOff)+"M"+str(J4calOff)+"N"+str(J5calOff)+"O"+str(J6calOff)+"P"+str(J7calOff)+"Q"+str(J8calOff)+"R"+str(J9calOff)+"\n" 
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
@@ -4200,29 +4676,31 @@ def calRobotAll():
   value=tab6.ElogView.get(0,END)
   pickle.dump(value,open("ErrorLog","wb")) 
   ##### STAGE 2 ########
-  command = "LL"+"A"+str(J1CalStatVal2)+"B"+str(J2CalStatVal2)+"C"+str(J3CalStatVal2)+"D"+str(J4CalStatVal2)+"E"+str(J5CalStatVal2)+"F"+str(J6CalStatVal2)+"G"+str(J1calOff)+"H"+str(J2calOff)+"I"+str(J3calOff)+"J"+str(J4calOff)+"K"+str(J5calOff)+"L"+str(J6calOff)+"\n"
-  ser.write(command.encode())
-  cmdSentEntryField.delete(0, 'end')
-  cmdSentEntryField.insert(0,command)
-  ser.flushInput()
-  response = str(ser.readline().strip(),'utf-8')
-  if (response[:1] == 'A'):
-    displayPosition(response)  
-    message = "Auto Calibration Stage 2 Successful"
-    almStatusLab.config(text=message, style="OK.TLabel")
-    almStatusLab2.config(text=message, style="OK.TLabel") 
-  else:
-    message = "Auto Calibration Stage 2 Failed" 
-    almStatusLab.config(text=message, style="Alarm.TLabel")
-    almStatusLab2.config(text=message, style="Alarm.TLabel")
-  Curtime = datetime.datetime.now().strftime("%B %d %Y - %I:%M%p")
-  tab6.ElogView.insert(END, Curtime+" - "+message)
-  value=tab6.ElogView.get(0,END)
-  pickle.dump(value,open("ErrorLog","wb")) 
+  CalStatVal2 = int(J1CalStatVal2)+int(J2CalStatVal2)+int(J3CalStatVal2)+int(J4CalStatVal2)+int(J5CalStatVal2)+int(J6CalStatVal2)
+  if(CalStatVal2>0):
+    command = "LL"+"A"+str(J1CalStatVal2)+"B"+str(J2CalStatVal2)+"C"+str(J3CalStatVal2)+"D"+str(J4CalStatVal2)+"E"+str(J5CalStatVal2)+"F"+str(J6CalStatVal2)+"G0H0I0"+"J"+str(J1calOff)+"K"+str(J2calOff)+"L"+str(J3calOff)+"M"+str(J4calOff)+"N"+str(J5calOff)+"O"+str(J6calOff)+"P"+str(J7calOff)+"Q"+str(J8calOff)+"R"+str(J9calOff)+"\n" 
+    ser.write(command.encode())
+    cmdSentEntryField.delete(0, 'end')
+    cmdSentEntryField.insert(0,command)
+    ser.flushInput()
+    response = str(ser.readline().strip(),'utf-8')
+    if (response[:1] == 'A'):
+      displayPosition(response)  
+      message = "Auto Calibration Stage 2 Successful"
+      almStatusLab.config(text=message, style="OK.TLabel")
+      almStatusLab2.config(text=message, style="OK.TLabel") 
+    else:
+      message = "Auto Calibration Stage 2 Failed" 
+      almStatusLab.config(text=message, style="Alarm.TLabel")
+      almStatusLab2.config(text=message, style="Alarm.TLabel")
+    Curtime = datetime.datetime.now().strftime("%B %d %Y - %I:%M%p")
+    tab6.ElogView.insert(END, Curtime+" - "+message)
+    value=tab6.ElogView.get(0,END)
+    pickle.dump(value,open("ErrorLog","wb")) 
 
 
 def calRobotJ1():
-  command = "LLA1B0C0D0E0F0G"+str(J1calOff)+"H"+str(J2calOff)+"I"+str(J3calOff)+"J"+str(J4calOff)+"K"+str(J5calOff)+"L"+str(J6calOff)+"\n"  
+  command = "LLA1B0C0D0E0F0G0H0I0"+"J"+str(J1calOff)+"K"+str(J2calOff)+"L"+str(J3calOff)+"M"+str(J4calOff)+"N"+str(J5calOff)+"O"+str(J6calOff)+"P"+str(J7calOff)+"Q"+str(J8calOff)+"R"+str(J9calOff)+"\n" 
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
@@ -4243,7 +4721,7 @@ def calRobotJ1():
   pickle.dump(value,open("ErrorLog","wb"))     
 
 def calRobotJ2():
-  command = "LLA0B1C0D0E0F0G"+str(J1calOff)+"H"+str(J2calOff)+"I"+str(J3calOff)+"J"+str(J4calOff)+"K"+str(J5calOff)+"L"+str(J6calOff)+"\n"  
+  command = "LLA0B1C0D0E0F0G0H0I0"+"J"+str(J1calOff)+"K"+str(J2calOff)+"L"+str(J3calOff)+"M"+str(J4calOff)+"N"+str(J5calOff)+"O"+str(J6calOff)+"P"+str(J7calOff)+"Q"+str(J8calOff)+"R"+str(J9calOff)+"\n" 
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
@@ -4264,7 +4742,7 @@ def calRobotJ2():
   pickle.dump(value,open("ErrorLog","wb"))     
 
 def calRobotJ3():
-  command = "LLA0B0C1D0E0F0G"+str(J1calOff)+"H"+str(J2calOff)+"I"+str(J3calOff)+"J"+str(J4calOff)+"K"+str(J5calOff)+"L"+str(J6calOff)+"\n"  
+  command = "LLA0B0C1D0E0F0G0H0I0"+"J"+str(J1calOff)+"K"+str(J2calOff)+"L"+str(J3calOff)+"M"+str(J4calOff)+"N"+str(J5calOff)+"O"+str(J6calOff)+"P"+str(J7calOff)+"Q"+str(J8calOff)+"R"+str(J9calOff)+"\n" 
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
@@ -4285,7 +4763,7 @@ def calRobotJ3():
   pickle.dump(value,open("ErrorLog","wb"))     
 
 def calRobotJ4():
-  command = "LLA0B0C0D1E0F0G"+str(J1calOff)+"H"+str(J4calOff)+"I"+str(J3calOff)+"J"+str(J4calOff)+"K"+str(J5calOff)+"L"+str(J6calOff)+"\n"  
+  command = "LLA0B0C0D1E0F0G0H0I0"+"J"+str(J1calOff)+"K"+str(J2calOff)+"L"+str(J3calOff)+"M"+str(J4calOff)+"N"+str(J5calOff)+"O"+str(J6calOff)+"P"+str(J7calOff)+"Q"+str(J8calOff)+"R"+str(J9calOff)+"\n" 
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
@@ -4306,7 +4784,7 @@ def calRobotJ4():
   pickle.dump(value,open("ErrorLog","wb"))     
 
 def calRobotJ5():
-  command = "LLA0B0C0D0E1F0G"+str(J1calOff)+"H"+str(J4calOff)+"I"+str(J3calOff)+"J"+str(J4calOff)+"K"+str(J5calOff)+"L"+str(J6calOff)+"\n"  
+  command = "LLA0B0C0D0E1F0G0H0I0"+"J"+str(J1calOff)+"K"+str(J2calOff)+"L"+str(J3calOff)+"M"+str(J4calOff)+"N"+str(J5calOff)+"O"+str(J6calOff)+"P"+str(J7calOff)+"Q"+str(J8calOff)+"R"+str(J9calOff)+"\n"  
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
@@ -4327,7 +4805,7 @@ def calRobotJ5():
   pickle.dump(value,open("ErrorLog","wb"))     
 
 def calRobotJ6():
-  command = "LLA0B0C0D0E0F1G"+str(J1calOff)+"H"+str(J4calOff)+"I"+str(J3calOff)+"J"+str(J4calOff)+"K"+str(J5calOff)+"L"+str(J6calOff)+"\n"  
+  command = "LLA0B0C0D0E0F1G0H0I0"+"J"+str(J1calOff)+"K"+str(J2calOff)+"L"+str(J3calOff)+"M"+str(J4calOff)+"N"+str(J5calOff)+"O"+str(J6calOff)+"P"+str(J7calOff)+"Q"+str(J8calOff)+"R"+str(J9calOff)+"\n"  
   ser.write(command.encode())
   cmdSentEntryField.delete(0, 'end')
   cmdSentEntryField.insert(0,command)
@@ -4345,7 +4823,70 @@ def calRobotJ6():
   Curtime = datetime.datetime.now().strftime("%B %d %Y - %I:%M%p")
   tab6.ElogView.insert(END, Curtime+" - "+message)
   value=tab6.ElogView.get(0,END)
-  pickle.dump(value,open("ErrorLog","wb"))     
+  pickle.dump(value,open("ErrorLog","wb"))   
+
+def calRobotJ7():
+  command = "LLA0B0C0D0E0F0G1H0I0"+"J"+str(J1calOff)+"K"+str(J2calOff)+"L"+str(J3calOff)+"M"+str(J4calOff)+"N"+str(J5calOff)+"O"+str(J6calOff)+"P"+str(J7calOff)+"Q"+str(J8calOff)+"R"+str(J9calOff)+"\n"  
+  ser.write(command.encode())
+  cmdSentEntryField.delete(0, 'end')
+  cmdSentEntryField.insert(0,command)
+  ser.flushInput()
+  response = str(ser.readline().strip(),'utf-8')
+  if (response[:1] == 'A'):
+    displayPosition(response)  
+    message = "J7 Calibrated Successfully"
+    almStatusLab.config(text=message, style="OK.TLabel")
+    almStatusLab2.config(text=message, style="OK.TLabel") 
+  else:
+    message = "J7 Calibrated Failed" 
+    almStatusLab.config(text=message, style="Alarm.TLabel")
+    almStatusLab2.config(text=message, style="Alarm.TLabel")
+  Curtime = datetime.datetime.now().strftime("%B %d %Y - %I:%M%p")
+  tab6.ElogView.insert(END, Curtime+" - "+message)
+  value=tab6.ElogView.get(0,END)
+  pickle.dump(value,open("ErrorLog","wb")) 
+
+def calRobotJ8():
+  command = "LLA0B0C0D0E0F0G0H1I0"+"J"+str(J1calOff)+"K"+str(J2calOff)+"L"+str(J3calOff)+"M"+str(J4calOff)+"N"+str(J5calOff)+"O"+str(J6calOff)+"P"+str(J7calOff)+"Q"+str(J8calOff)+"R"+str(J9calOff)+"\n"  
+  ser.write(command.encode())
+  cmdSentEntryField.delete(0, 'end')
+  cmdSentEntryField.insert(0,command)
+  ser.flushInput()
+  response = str(ser.readline().strip(),'utf-8')
+  if (response[:1] == 'A'):
+    displayPosition(response)  
+    message = "J8 Calibrated Successfully"
+    almStatusLab.config(text=message, style="OK.TLabel")
+    almStatusLab2.config(text=message, style="OK.TLabel") 
+  else:
+    message = "J8 Calibrated Failed" 
+    almStatusLab.config(text=message, style="Alarm.TLabel")
+    almStatusLab2.config(text=message, style="Alarm.TLabel")
+  Curtime = datetime.datetime.now().strftime("%B %d %Y - %I:%M%p")
+  tab6.ElogView.insert(END, Curtime+" - "+message)
+  value=tab6.ElogView.get(0,END)
+  pickle.dump(value,open("ErrorLog","wb"))    
+
+def calRobotJ9():
+  command = "LLA0B0C0D0E0F0G0H0I1"+"J"+str(J1calOff)+"K"+str(J2calOff)+"L"+str(J3calOff)+"M"+str(J4calOff)+"N"+str(J5calOff)+"O"+str(J6calOff)+"P"+str(J7calOff)+"Q"+str(J8calOff)+"R"+str(J9calOff)+"\n"  
+  ser.write(command.encode())
+  cmdSentEntryField.delete(0, 'end')
+  cmdSentEntryField.insert(0,command)
+  ser.flushInput()
+  response = str(ser.readline().strip(),'utf-8')
+  if (response[:1] == 'A'):
+    displayPosition(response)  
+    message = "J9 Calibrated Successfully"
+    almStatusLab.config(text=message, style="OK.TLabel")
+    almStatusLab2.config(text=message, style="OK.TLabel") 
+  else:
+    message = "J9 Calibrated Failed" 
+    almStatusLab.config(text=message, style="Alarm.TLabel")
+    almStatusLab2.config(text=message, style="Alarm.TLabel")
+  Curtime = datetime.datetime.now().strftime("%B %d %Y - %I:%M%p")
+  tab6.ElogView.insert(END, Curtime+" - "+message)
+  value=tab6.ElogView.get(0,END)
+  pickle.dump(value,open("ErrorLog","wb"))             
 	
 
 
@@ -4382,31 +4923,81 @@ def toolFrame():
   time.sleep(.2)
   response = ser.read()
 
-def calAxis7():
-  TRaxisLimNeg = 0
-  TRaxisLimPos = TRlength
-  TRnegLimLab.config(text=str(-TRaxisLimNeg), style="Jointlim.TLabel")
-  TRposLimLab.config(text=str(TRaxisLimPos), style="Jointlim.TLabel")
-  TRjogslide.config(from_=-TRaxisLimNeg, to=TRlength,  length=125, orient=HORIZONTAL,  command=TRsliderUpdate)
-  command = "CT"+"A"+str(TRlength)+"B"+str(TRrotation)+"C"+str(TRsteps)+"\n"
+def calExtAxis():
+  J7axisLimNeg = 0
+  J8axisLimNeg = 0
+  J9axisLimNeg = 0
+
+  J7axisLimPos = float(axis7lengthEntryField.get())
+  J8axisLimPos = float(axis8lengthEntryField.get())
+  J9axisLimPos = float(axis9lengthEntryField.get())
+
+  J7negLimLab.config(text=str(-J7axisLimNeg), style="Jointlim.TLabel")
+  J8negLimLab.config(text=str(-J8axisLimNeg), style="Jointlim.TLabel")
+  J9negLimLab.config(text=str(-J9axisLimNeg), style="Jointlim.TLabel")
+
+  J7posLimLab.config(text=str(J7axisLimPos), style="Jointlim.TLabel")
+  J8posLimLab.config(text=str(J8axisLimPos), style="Jointlim.TLabel")
+  J9posLimLab.config(text=str(J9axisLimPos), style="Jointlim.TLabel")
+
+  J7jogslide.config(from_=-J7axisLimNeg, to=J7axisLimPos,  length=125, orient=HORIZONTAL,  command=J7sliderUpdate)
+  J8jogslide.config(from_=-J8axisLimNeg, to=J8axisLimPos,  length=125, orient=HORIZONTAL,  command=J8sliderUpdate)
+  J9jogslide.config(from_=-J9axisLimNeg, to=J9axisLimPos,  length=125, orient=HORIZONTAL,  command=J9sliderUpdate)
+
+  command = "CE"+"A"+str(J7axisLimPos)+"B"+str(J7rotation)+"C"+str(J7steps)+"D"+str(J8axisLimPos)+"E"+str(J8rotation)+"F"+str(J8steps)+"G"+str(J9axisLimPos)+"H"+str(J9rotation)+"I"+str(J9steps)+"\n"
   ser.write(command.encode())    
   ser.flushInput()
   time.sleep(.2)
   response = ser.read()
 
 def zeroAxis7():
-  TRaxisLimNeg = 0
-  TRaxisLimPos = TRlength
-  command = "ZT"+"\n"
+  command = "Z7"+"\n"
   ser.write(command.encode())    
   ser.flushInput()
   time.sleep(.2)
+  almStatusLab.config(text="J7 Calibration Forced to Zero", style="Warn.TLabel")
+  almStatusLab2.config(text="J7 Calibration Forced to Zero", style="Warn.TLabel")
+  message = "J7 Calibration Forced to Zero - this is for commissioning and testing - be careful!"
+  Curtime = datetime.datetime.now().strftime("%B %d %Y - %I:%M%p")
+  tab6.ElogView.insert(END, Curtime+" - "+message)
+  value=tab6.ElogView.get(0,END)
+  pickle.dump(value,open("ErrorLog","wb"))  
   response = str(ser.readline().strip(),'utf-8')
   displayPosition(response) 
 
+def zeroAxis8():
+  command = "Z8"+"\n"
+  ser.write(command.encode())    
+  ser.flushInput()
+  time.sleep(.2)
+  almStatusLab.config(text="J8 Calibration Forced to Zero", style="Warn.TLabel")
+  almStatusLab2.config(text="J8 Calibration Forced to Zero", style="Warn.TLabel")
+  message = "J8 Calibration Forced to Zero - this is for commissioning and testing - be careful!"
+  Curtime = datetime.datetime.now().strftime("%B %d %Y - %I:%M%p")
+  tab6.ElogView.insert(END, Curtime+" - "+message)
+  value=tab6.ElogView.get(0,END)
+  pickle.dump(value,open("ErrorLog","wb"))  
+  response = str(ser.readline().strip(),'utf-8')
+  displayPosition(response) 
+
+def zeroAxis9():
+  command = "Z9"+"\n"
+  ser.write(command.encode())    
+  ser.flushInput()
+  time.sleep(.2)
+  almStatusLab.config(text="J9 Calibration Forced to Zero", style="Warn.TLabel")
+  almStatusLab2.config(text="J9 Calibration Forced to Zero", style="Warn.TLabel")
+  message = "J9 Calibration Forced to Zero - this is for commissioning and testing - be careful!"
+  Curtime = datetime.datetime.now().strftime("%B %d %Y - %I:%M%p")
+  tab6.ElogView.insert(END, Curtime+" - "+message)
+  value=tab6.ElogView.get(0,END)
+  pickle.dump(value,open("ErrorLog","wb"))  
+  response = str(ser.readline().strip(),'utf-8')
+  displayPosition(response)   
+
 
 def sendPos():
-  command = "SP"+"A"+str(J1AngCur)+"B"+str(J2AngCur)+"C"+str(J3AngCur)+"D"+str(J4AngCur)+"E"+str(J5AngCur)+"F"+str(J6AngCur)+"G"+str(TRStepCur)+"\n"
+  command = "SP"+"A"+str(J1AngCur)+"B"+str(J2AngCur)+"C"+str(J3AngCur)+"D"+str(J4AngCur)+"E"+str(J5AngCur)+"F"+str(J6AngCur)+"G"+str(J7PosCur)+"H"+str(J8PosCur)+"I"+str(J9PosCur)+"\n"
   ser.write(command.encode())    
   ser.flushInput()
   time.sleep(.2)
@@ -4463,14 +5054,16 @@ def displayPosition(response):
   global J4AngCur
   global J5AngCur
   global J6AngCur
-  global TRStepCur
+  global J7StepCur
   global XcurPos
   global YcurPos
   global ZcurPos
   global RxcurPos
   global RycurPos
   global RzcurPos 
-  global TrackcurPos
+  global J7PosCur
+  global J8PosCur
+  global J9PosCur
   global WC 
 
   cmdRecEntryField.delete(0, 'end')
@@ -4490,7 +5083,9 @@ def displayPosition(response):
   SpeedVioIndex = response.find('M');
   DebugIndex = response.find('N');
   FlagIndex = response.find('O');
-  TRStepIndex = response.find('P');
+  J7PosIndex = response.find('P');
+  J8PosIndex = response.find('Q');
+  J9PosIndex = response.find('R');
   J1AngCur = response[J1AngIndex+1:J2AngIndex].strip();
   J2AngCur = response[J2AngIndex+1:J3AngIndex].strip();
   J3AngCur = response[J3AngIndex+1:J4AngIndex].strip();
@@ -4510,9 +5105,11 @@ def displayPosition(response):
   RxcurPos = response[RxposIndex+1:SpeedVioIndex].strip();
   SpeedVioation = response[SpeedVioIndex+1:DebugIndex].strip();
   Debug = response[DebugIndex+1:FlagIndex].strip();
-  Flag = response[FlagIndex+1:TRStepIndex].strip();
-  TRStepCur = float(response[TRStepIndex+1:].strip());
-  TrackcurPos = str(round(TRStepCur/(TRsteps/TRrotation),2));
+  Flag = response[FlagIndex+1:J7PosIndex].strip();
+  J7PosCur = float(response[J7PosIndex+1:J8PosIndex].strip());
+  J8PosCur = float(response[J8PosIndex+1:J9PosIndex].strip());
+  J9PosCur = float(response[J9PosIndex+1:].strip());
+  
   J1curAngEntryField.delete(0, 'end')
   J1curAngEntryField.insert(0,J1AngCur)
   J2curAngEntryField.delete(0, 'end')
@@ -4537,15 +5134,21 @@ def displayPosition(response):
   RycurEntryField.insert(0,RycurPos)
   RxcurEntryField.delete(0, 'end')
   RxcurEntryField.insert(0,RxcurPos)
-  TRcurAngEntryField.delete(0, 'end')
-  TRcurAngEntryField.insert(0,TrackcurPos)
+  J7curAngEntryField.delete(0, 'end')
+  J7curAngEntryField.insert(0,J7PosCur)
+  J8curAngEntryField.delete(0, 'end')
+  J8curAngEntryField.insert(0,J8PosCur)
+  J9curAngEntryField.delete(0, 'end')
+  J9curAngEntryField.insert(0,J9PosCur)
   J1jogslide.set(J1AngCur)
   J2jogslide.set(J2AngCur)
   J3jogslide.set(J3AngCur)
   J4jogslide.set(J4AngCur)
   J5jogslide.set(J5AngCur)
   J6jogslide.set(J6AngCur)
-  TRjogslide.set(TrackcurPos)
+  J7jogslide.set(J7PosCur)
+  J8jogslide.set(J8PosCur)
+  J9jogslide.set(J9PosCur)
   manEntryField.delete(0, 'end')
   manEntryField.insert(0,Debug)
   savePosData()
@@ -4574,9 +5177,9 @@ def SaveAndApplyCalibration():
   global RxcurPos
   global RycurPos
   global RzcurPos
-  global TrackcurPos
-  global TrackLength
-  global TrackStepLim
+  global J7PosCur
+  global J8PosCur
+  global J9PosCur
   global VisFileLoc
   global VisProg
   global VisOrigXpix
@@ -4593,6 +5196,9 @@ def SaveAndApplyCalibration():
   global J4calOff 
   global J5calOff 
   global J6calOff 
+  global J7calOff 
+  global J8calOff 
+  global J9calOff 
   global J1OpenLoopVal
   global J2OpenLoopVal
   global J3OpenLoopVal
@@ -4611,13 +5217,19 @@ def SaveAndApplyCalibration():
   global J4CalStatVal2
   global J5CalStatVal2
   global J6CalStatVal2
-  global TRlength
-  global TRrotation
-  global TRsteps
+  global J7axisLimPos
+  global J7rotation
+  global J7steps
+  global J8length
+  global J8rotation
+  global J8steps
+  global J9length
+  global J9rotation
+  global J9steps
   global IncJogStat
-  TrackcurPos = TRcurAngEntryField.get()
-  TrackLength = float(TrackLengthEntryField.get())
-  TrackStepLim = float(TrackStepLimEntryField.get())
+  J7PosCur = J7curAngEntryField.get()
+  J8PosCur = J8curAngEntryField.get()
+  J9PosCur = J9curAngEntryField.get()
   VisFileLoc = VisFileLocEntryField.get()
   VisProg = visoptions.get()
   VisOrigXpix = float(VisPicOxPEntryField.get())
@@ -4634,6 +5246,9 @@ def SaveAndApplyCalibration():
   J4calOff    = float(J4calOffEntryField.get())
   J5calOff    = float(J5calOffEntryField.get())
   J6calOff    = float(J6calOffEntryField.get())
+  J7calOff    = float(J7calOffEntryField.get())
+  J8calOff    = float(J8calOffEntryField.get())
+  J9calOff    = float(J9calOffEntryField.get())
   J1OpenLoopVal = int(J1OpenLoopStat.get())
   J2OpenLoopVal = int(J2OpenLoopStat.get())
   J3OpenLoopVal = int(J3OpenLoopStat.get())
@@ -4652,13 +5267,19 @@ def SaveAndApplyCalibration():
   J4CalStatVal2 = int(J4CalStat2.get())
   J5CalStatVal2 = int(J5CalStat2.get())
   J6CalStatVal2 = int(J6CalStat2.get())
-  TRlength     = float(axis7lengthEntryField.get())
-  TRrotation   = float(axis7rotEntryField.get())
-  TRsteps      = float(axis7stepsEntryField.get())
+  J7axisLimPos     = float(axis7lengthEntryField.get())
+  J7rotation   = float(axis7rotEntryField.get())
+  J7steps      = float(axis7stepsEntryField.get())
+  J8length     = float(axis8lengthEntryField.get())
+  J8rotation   = float(axis8rotEntryField.get())
+  J8steps      = float(axis8stepsEntryField.get())
+  J9length     = float(axis9lengthEntryField.get())
+  J9rotation   = float(axis9rotEntryField.get())
+  J9steps      = float(axis9stepsEntryField.get())
   try:
     toolFrame()
     time.sleep(.5)
-    calAxis7()
+    calExtAxis()
   except:
     print("no serial connection with Teensy board")  
   savePosData()
@@ -4677,9 +5298,15 @@ def savePosData():
   global RycurPos
   global RzcurPos
   global curTheme
-  global TRlength
-  global TRrotation
-  global TRsteps
+  global J7axisLimPos
+  global J7rotation
+  global J7steps
+  global J8length
+  global J8rotation
+  global J8steps
+  global J9length
+  global J9rotation
+  global J9steps
   global mX1
   global mY1
   global mX2
@@ -4713,9 +5340,9 @@ def savePosData():
   calibration.insert(END, TFrxEntryField.get())
   calibration.insert(END, TFryEntryField.get())
   calibration.insert(END, TFrzEntryField.get())
-  calibration.insert(END, TRcurAngEntryField.get())
-  calibration.insert(END, TrackLengthEntryField.get())
-  calibration.insert(END, TrackStepLimEntryField.get())
+  calibration.insert(END, J7curAngEntryField.get())
+  calibration.insert(END, J8curAngEntryField.get())
+  calibration.insert(END, J9curAngEntryField.get())
   calibration.insert(END, VisFileLocEntryField.get())
   calibration.insert(END, visoptions.get())
   calibration.insert(END, VisPicOxPEntryField.get())
@@ -4746,10 +5373,10 @@ def savePosData():
   calibration.insert(END, J4CalStatVal)
   calibration.insert(END, J5CalStatVal)
   calibration.insert(END, J6CalStatVal)
-  calibration.insert(END, TRlength)
-  calibration.insert(END, TRrotation)
-  calibration.insert(END, TRsteps)
-  calibration.insert(END, TRStepCur)
+  calibration.insert(END, J7axisLimPos)
+  calibration.insert(END, J7rotation)
+  calibration.insert(END, J7steps)
+  calibration.insert(END, J7StepCur) #is this used?
   calibration.insert(END, J1CalStatVal2)
   calibration.insert(END, J2CalStatVal2)
   calibration.insert(END, J3CalStatVal2)
@@ -4777,7 +5404,16 @@ def savePosData():
   calibration.insert(END, mX1)
   calibration.insert(END, mY1)
   calibration.insert(END, mX2)
-  calibration.insert(END, mY2)       
+  calibration.insert(END, mY2)
+  calibration.insert(END, J8length)
+  calibration.insert(END, J8rotation)
+  calibration.insert(END, J8steps)
+  calibration.insert(END, J9length)
+  calibration.insert(END, J9rotation)
+  calibration.insert(END, J9steps)
+  calibration.insert(END, J7calOffEntryField.get())
+  calibration.insert(END, J8calOffEntryField.get())
+  calibration.insert(END, J9calOffEntryField.get())       
 
 
   
@@ -4817,43 +5453,55 @@ def checkSpeedVals():
 
 def ErrorHandler(response):
   Curtime = datetime.datetime.now().strftime("%B %d %Y - %I:%M%p")
+  cmdRecEntryField.delete(0, 'end')
+  cmdRecEntryField.insert(0,response)
   ##AXIS LIMIT ERROR
   if (response[1:2] == 'L'):
-    if (response[2:] == '1000000'):
+    if (response[2:3] == '1'):
       message = "J1 Axis Limit"
       tab6.ElogView.insert(END, Curtime+" - "+message)
       value=tab6.ElogView.get(0,END)
       pickle.dump(value,open("ErrorLog","wb"))
-    if (response[2:] == '0100000'):
+    if (response[3:4] == '1'):
       message = "J2 Axis Limit"
       tab6.ElogView.insert(END, Curtime+" - "+message)
       value=tab6.ElogView.get(0,END)
       pickle.dump(value,open("ErrorLog","wb"))
-    if (response[2:] == '0010000'):
+    if (response[4:5] == '1'):
       message = "J3 Axis Limit"
       tab6.ElogView.insert(END, Curtime+" - "+message)
       value=tab6.ElogView.get(0,END)
       pickle.dump(value,open("ErrorLog","wb"))
-    if (response[2:] == '0001000'):
+    if (response[5:6] == '1'):
       message = "J4 Axis Limit"
       tab6.ElogView.insert(END, Curtime+" - "+message)
       value=tab6.ElogView.get(0,END)
       pickle.dump(value,open("ErrorLog","wb"))
-    if (response[2:] == '0000100'):
+    if (response[6:7] == '1'):
       message = "J5 Axis Limit"
       tab6.ElogView.insert(END, Curtime+" - "+message)
       value=tab6.ElogView.get(0,END)
       pickle.dump(value,open("ErrorLog","wb"))
-    if (response[2:] == '0000010'):
+    if (response[7:8] == '1'):
       message = "J6 Axis Limit"
       tab6.ElogView.insert(END, Curtime+" - "+message)
       value=tab6.ElogView.get(0,END)
       pickle.dump(value,open("ErrorLog","wb"))
-    if (response[2:] == '0000001'):
-      message = "Track Axis Limit"
+    if (response[8:9] == '1'):
+      message = "J7 Axis Limit"
       tab6.ElogView.insert(END, Curtime+" - "+message)
       value=tab6.ElogView.get(0,END)
-      pickle.dump(value,open("ErrorLog","wb"))  
+      pickle.dump(value,open("ErrorLog","wb"))
+    if (response[9:10] == '1'):
+      message = "J8 Axis Limit"
+      tab6.ElogView.insert(END, Curtime+" - "+message)
+      value=tab6.ElogView.get(0,END)
+      pickle.dump(value,open("ErrorLog","wb"))
+    if (response[10:11] == '1'):
+      message = "J9 Axis Limit"
+      tab6.ElogView.insert(END, Curtime+" - "+message)
+      value=tab6.ElogView.get(0,END)
+      pickle.dump(value,open("ErrorLog","wb"))         
     cmdRecEntryField.delete(0, 'end')
     cmdRecEntryField.insert(0,response)            
     message = "Axis Limit Error - See Log"
@@ -4862,75 +5510,68 @@ def ErrorHandler(response):
     #stopProg()
   ##COLLISION ERROR   
   elif (response[1:2] == 'C'):
-    if (J1OpenLoopStat.get() == 0):
-      if (response[2:3] == '1'):
-        message = "J1 Collision or Motor Error"
-        tab6.ElogView.insert(END, Curtime+" - "+message)
-        value=tab6.ElogView.get(0,END)
-        pickle.dump(value,open("ErrorLog","wb"))
-        correctPos()
-        stopProg()
-        message = "Collision or Motor Error - See Log"
-        almStatusLab.config(text=message, style="Alarm.TLabel")
-        almStatusLab2.config(text=message, style="Alarm.TLabel")
-    if (J2OpenLoopStat.get() == 0):    
-      if (response[3:4] == '1'):
-        message = "J2 Collision or Motor Error"
-        tab6.ElogView.insert(END, Curtime+" - "+message)
-        value=tab6.ElogView.get(0,END)
-        pickle.dump(value,open("ErrorLog","wb"))
-        correctPos()
-        stopProg()
-        message = "Collision or Motor Error - See Log"
-        almStatusLab.config(text=message, style="Alarm.TLabel")
-        almStatusLab2.config(text=message, style="Alarm.TLabel")
-    if (J3OpenLoopStat.get() == 0):
-      if (response[4:5] == '1'):
-        message = "J3 Collision or Motor Error"
-        tab6.ElogView.insert(END, Curtime+" - "+message)
-        value=tab6.ElogView.get(0,END)
-        pickle.dump(value,open("ErrorLog","wb"))
-        correctPos()
-        stopProg()
-        message = "Collision or Motor Error - See Log"
-        almStatusLab.config(text=message, style="Alarm.TLabel")
-        almStatusLab2.config(text=message, style="Alarm.TLabel")
-    if (J4OpenLoopStat.get() == 0):
-      if (response[5:6] == '1'):
-        message = "J4 Collision or Motor Error"
-        tab6.ElogView.insert(END, Curtime+" - "+message)
-        value=tab6.ElogView.get(0,END)
-        pickle.dump(value,open("ErrorLog","wb"))
-        correctPos()
-        stopProg()
-        message = "Collision or Motor Error - See Log"
-        almStatusLab.config(text=message, style="Alarm.TLabel")
-        almStatusLab2.config(text=message, style="Alarm.TLabel")
-    if (J5OpenLoopStat.get() == 0):
-      if (response[6:7] == '1'):
-        message = "J5 Collision or Motor Error"
-        tab6.ElogView.insert(END, Curtime+" - "+message)
-        value=tab6.ElogView.get(0,END)
-        pickle.dump(value,open("ErrorLog","wb"))
-        correctPos()
-        stopProg()
-        message = "Collision or Motor Error - See Log"
-        almStatusLab.config(text=message, style="Alarm.TLabel")
-        almStatusLab2.config(text=message, style="Alarm.TLabel")
-    if (J6OpenLoopStat.get() == 0):
-      if (response[7:8] == '1'):
-        message = "J6 Collision or Motor Error"
-        tab6.ElogView.insert(END, Curtime+" - "+message)
-        value=tab6.ElogView.get(0,END)
-        pickle.dump(value,open("ErrorLog","wb"))  
-        correctPos()
-        stopProg()        
-        message = "Collision or Motor Error - See Log"
-        almStatusLab.config(text=message, style="Alarm.TLabel")
-        almStatusLab2.config(text=message, style="Alarm.TLabel")
-    #ResetDriveBut = Button(tab1,  text="Reset Drives",   command = ResetDrives, style="AlarmBut.TButton")
-    #ResetDriveBut.place(x=307, y=42) 
-    ##REACH ERROR   
+    if (response[2:3] == '1'):
+      message = "J1 Collision or Motor Error"
+      tab6.ElogView.insert(END, Curtime+" - "+message)
+      value=tab6.ElogView.get(0,END)
+      pickle.dump(value,open("ErrorLog","wb"))
+      correctPos()
+      stopProg()
+      message = "Collision or Motor Error - See Log"
+      almStatusLab.config(text=message, style="Alarm.TLabel")
+      almStatusLab2.config(text=message, style="Alarm.TLabel")   
+    if (response[3:4] == '1'):
+      message = "J2 Collision or Motor Error"
+      tab6.ElogView.insert(END, Curtime+" - "+message)
+      value=tab6.ElogView.get(0,END)
+      pickle.dump(value,open("ErrorLog","wb"))
+      correctPos()
+      stopProg()
+      message = "Collision or Motor Error - See Log"
+      almStatusLab.config(text=message, style="Alarm.TLabel")
+      almStatusLab2.config(text=message, style="Alarm.TLabel")
+    if (response[4:5] == '1'):
+      message = "J3 Collision or Motor Error"
+      tab6.ElogView.insert(END, Curtime+" - "+message)
+      value=tab6.ElogView.get(0,END)
+      pickle.dump(value,open("ErrorLog","wb"))
+      correctPos()
+      stopProg()
+      message = "Collision or Motor Error - See Log"
+      almStatusLab.config(text=message, style="Alarm.TLabel")
+      almStatusLab2.config(text=message, style="Alarm.TLabel")
+    if (response[5:6] == '1'):
+      message = "J4 Collision or Motor Error"
+      tab6.ElogView.insert(END, Curtime+" - "+message)
+      value=tab6.ElogView.get(0,END)
+      pickle.dump(value,open("ErrorLog","wb"))
+      correctPos()
+      stopProg()
+      message = "Collision or Motor Error - See Log"
+      almStatusLab.config(text=message, style="Alarm.TLabel")
+      almStatusLab2.config(text=message, style="Alarm.TLabel")
+    if (response[6:7] == '1'):
+      message = "J5 Collision or Motor Error"
+      tab6.ElogView.insert(END, Curtime+" - "+message)
+      value=tab6.ElogView.get(0,END)
+      pickle.dump(value,open("ErrorLog","wb"))
+      correctPos()
+      stopProg()
+      message = "Collision or Motor Error - See Log"
+      almStatusLab.config(text=message, style="Alarm.TLabel")
+      almStatusLab2.config(text=message, style="Alarm.TLabel")
+    if (response[7:8] == '1'):
+      message = "J6 Collision or Motor Error"
+      tab6.ElogView.insert(END, Curtime+" - "+message)
+      value=tab6.ElogView.get(0,END)
+      pickle.dump(value,open("ErrorLog","wb"))  
+      correctPos()
+      stopProg()        
+      message = "Collision or Motor Error - See Log"
+      almStatusLab.config(text=message, style="Alarm.TLabel")
+      almStatusLab2.config(text=message, style="Alarm.TLabel")
+
+  ##REACH ERROR   
   elif (response[1:2] == 'R'):
     stopProg()
     message = "Position Out of Reach"
@@ -5998,8 +6639,8 @@ TyLab.place(x=930, y=265)
 TpLab = Label(CartjogFrame, font=("Arial", 18), text = "Try")
 TpLab.place(x=1020, y=265)
 
-TrLab = Label(CartjogFrame, font=("Arial", 18), text = "Trx")
-TrLab.place(x=1110, y=265)
+J7Lab = Label(CartjogFrame, font=("Arial", 18), text = "Trx")
+J7Lab.place(x=1110, y=265)
 
 
 
@@ -6288,38 +6929,146 @@ J6jogslide = Scale(J6jogFrame, from_=-J6axisLimNeg, to=J6axisLimPos,  length=180
 J6jogslide.bind("<ButtonRelease-1>", J6sliderExecute)
 J6jogslide.place(x=115, y=7)
 
-TRjogFrame = Frame(tab1, width=145, height=115)
-TRjogFrame['relief'] = 'raised'
-TRjogFrame.place(x=1340, y=350)
-TRLab = Label(TRjogFrame, font=("Arial", 14), text = "7th Axis")
-TRLab.place(x=15, y=5)
-TRcurAngEntryField = Entry(TRjogFrame,width=5)
-TRcurAngEntryField.place(x=90, y=9)
-TRjogNegBut = Button(TRjogFrame,  text="-", width=3, command = lambda: TrackjogNeg(float(incrementEntryField.get())))
-TRjogNegBut.place(x=10, y=65, width=30, height=25)
-TRjogPosBut = Button(TRjogFrame, text="+",  width=3, command = lambda: TrackjogPos(float(incrementEntryField.get())))
-TRjogPosBut.place(x=105, y=65, width=30, height=25)
-TRstilljogNegBut = Button(TRjogFrame,  text="", width=3, command = lambda: TRstilljogNeg(float(incrementEntryField.get())))
-TRstilljogNegBut.place(x=10, y=95, width=30, height=12)
-TRstilljogPosBut = Button(TRjogFrame, text="",  width=3, command = lambda: TRstilljogPos(float(incrementEntryField.get())))
-TRstilljogPosBut.place(x=105, y=95, width=30, height=12)
-TRnegLimLab = Label(TRjogFrame, font=("Arial", 8), text = str(-TRaxisLimNeg), style="Jointlim.TLabel")
-TRnegLimLab.place(x=10, y=30)
-TRposLimLab = Label(TRjogFrame, font=("Arial", 8), text = str(TRaxisLimPos), style="Jointlim.TLabel")
-TRposLimLab.place(x=110, y=30)
-TRslidelabel = Label(TRjogFrame)
-TRslidelabel.place(x=60, y=70)
-def TRsliderUpdate(foo):
-  TRslidelabel.config(text=round(float(TRjogslide.get()),2))   
-def TRsliderExecute(foo): 
-  TRdelta = float(TRjogslide.get()) - float(TRcurAngEntryField.get())
-  if (TRdelta < 0):
-    TrackjogNeg(abs(TRdelta))
+
+
+
+
+J7jogFrame = Frame(tab1, width=145, height=100)
+J7jogFrame['relief'] = 'raised'
+J7jogFrame.place(x=1340, y=350)
+J7Lab = Label(J7jogFrame, font=("Arial", 14), text = "7th Axis")
+J7Lab.place(x=15, y=5)
+J7curAngEntryField = Entry(J7jogFrame,width=5)
+J7curAngEntryField.place(x=95, y=9)
+def SelJ7jogNeg(self):
+  IncJogStatVal = int(IncJogStat.get())
+  if (IncJogStatVal == 1):
+    J7jogNeg(float(incrementEntryField.get()))
   else:
-    TrackjogPos(abs(TRdelta))       
-TRjogslide = Scale(TRjogFrame, from_=-TRaxisLimNeg, to=TRaxisLimPos,  length=125, orient=HORIZONTAL,  command=TRsliderUpdate)
-TRjogslide.bind("<ButtonRelease-1>", TRsliderExecute)
-TRjogslide.place(x=10, y=43)
+    LiveJointJog(70) 
+J7jogNegBut = Button(J7jogFrame,  text="-", width=3)
+J7jogNegBut.bind("<ButtonPress>", SelJ7jogNeg)
+J7jogNegBut.bind("<ButtonRelease>", StopJog)
+J7jogNegBut.place(x=10, y=65, width=30, height=25)
+def SelJ7jogPos(self):
+  IncJogStatVal = int(IncJogStat.get())
+  if (IncJogStatVal == 1):
+    J7jogPos(float(incrementEntryField.get()))
+  else:
+    LiveJointJog(71)  
+J7jogPosBut = Button(J7jogFrame, text="+",  width=3)
+J7jogPosBut.bind("<ButtonPress>", SelJ7jogPos)
+J7jogPosBut.bind("<ButtonRelease>", StopJog)
+J7jogPosBut.place(x=105, y=65, width=30, height=25)
+J7negLimLab = Label(J7jogFrame, font=("Arial", 8), text = str(-J7axisLimNeg), style="Jointlim.TLabel")
+J7negLimLab.place(x=10, y=30)
+J7posLimLab = Label(J7jogFrame, font=("Arial", 8), text = str(J7axisLimPos), style="Jointlim.TLabel")
+J7posLimLab.place(x=110, y=30)
+J7slideLimLab = Label(J7jogFrame)
+J7slideLimLab.place(x=60, y=70)
+def J7sliderUpdate(foo):
+  J7slideLimLab.config(text=round(float(J7jogslide.get()),2))   
+def J7sliderExecute(foo): 
+  J7delta = float(J7jogslide.get()) - float(J7curAngEntryField.get())
+  if (J7delta < 0):
+    J7jogNeg(abs(J7delta))
+  else:
+    J7jogPos(abs(J7delta))       
+J7jogslide = Scale(J7jogFrame, from_=-J7axisLimNeg, to=J7axisLimPos,  length=125, orient=HORIZONTAL,  command=J7sliderUpdate)
+J7jogslide.bind("<ButtonRelease-1>", J7sliderExecute)
+J7jogslide.place(x=10, y=43)
+
+
+J8jogFrame = Frame(tab1, width=145, height=100)
+J8jogFrame['relief'] = 'raised'
+J8jogFrame.place(x=1340, y=460)
+J8Lab = Label(J8jogFrame, font=("Arial", 14), text = "8th Axis")
+J8Lab.place(x=15, y=5)
+J8curAngEntryField = Entry(J8jogFrame,width=5)
+J8curAngEntryField.place(x=95, y=9)
+def SelJ8jogNeg(self):
+  IncJogStatVal = int(IncJogStat.get())
+  if (IncJogStatVal == 1):
+    J8jogNeg(float(incrementEntryField.get()))
+  else:
+    LiveJointJog(80) 
+J8jogNegBut = Button(J8jogFrame,  text="-", width=3)
+J8jogNegBut.bind("<ButtonPress>", SelJ8jogNeg)
+J8jogNegBut.bind("<ButtonRelease>", StopJog)
+J8jogNegBut.place(x=10, y=65, width=30, height=25)
+def SelJ8jogPos(self):
+  IncJogStatVal = int(IncJogStat.get())
+  if (IncJogStatVal == 1):
+    J8jogPos(float(incrementEntryField.get()))
+  else:
+    LiveJointJog(81)  
+J8jogPosBut = Button(J8jogFrame, text="+",  width=3)
+J8jogPosBut.bind("<ButtonPress>", SelJ8jogPos)
+J8jogPosBut.bind("<ButtonRelease>", StopJog)
+J8jogPosBut.place(x=105, y=65, width=30, height=25)
+J8negLimLab = Label(J8jogFrame, font=("Arial", 8), text = str(-J8axisLimNeg), style="Jointlim.TLabel")
+J8negLimLab.place(x=10, y=30)
+J8posLimLab = Label(J8jogFrame, font=("Arial", 8), text = str(J8axisLimPos), style="Jointlim.TLabel")
+J8posLimLab.place(x=110, y=30)
+J8slideLimLab = Label(J8jogFrame)
+J8slideLimLab.place(x=60, y=70)
+def J8sliderUpdate(foo):
+  J8slideLimLab.config(text=round(float(J8jogslide.get()),2))   
+def J8sliderExecute(foo): 
+  J8delta = float(J8jogslide.get()) - float(J8curAngEntryField.get())
+  if (J8delta < 0):
+    J8jogNeg(abs(J8delta))
+  else:
+    J8jogPos(abs(J8delta))       
+J8jogslide = Scale(J8jogFrame, from_=-J8axisLimNeg, to=J8axisLimPos,  length=125, orient=HORIZONTAL,  command=J8sliderUpdate)
+J8jogslide.bind("<ButtonRelease-1>", J8sliderExecute)
+J8jogslide.place(x=10, y=43)
+
+
+J9jogFrame = Frame(tab1, width=145, height=100)
+J9jogFrame['relief'] = 'raised'
+J9jogFrame.place(x=1340, y=570)
+J9Lab = Label(J9jogFrame, font=("Arial", 14), text = "9th Axis")
+J9Lab.place(x=15, y=5)
+J9curAngEntryField = Entry(J9jogFrame,width=5)
+J9curAngEntryField.place(x=95, y=9)
+def SelJ9jogNeg(self):
+  IncJogStatVal = int(IncJogStat.get())
+  if (IncJogStatVal == 1):
+    J9jogNeg(float(incrementEntryField.get()))
+  else:
+    LiveJointJog(90) 
+J9jogNegBut = Button(J9jogFrame,  text="-", width=3)
+J9jogNegBut.bind("<ButtonPress>", SelJ9jogNeg)
+J9jogNegBut.bind("<ButtonRelease>", StopJog)
+J9jogNegBut.place(x=10, y=65, width=30, height=25)
+def SelJ9jogPos(self):
+  IncJogStatVal = int(IncJogStat.get())
+  if (IncJogStatVal == 1):
+    J9jogPos(float(incrementEntryField.get()))
+  else:
+    LiveJointJog(91)  
+J9jogPosBut = Button(J9jogFrame, text="+",  width=3)
+J9jogPosBut.bind("<ButtonPress>", SelJ9jogPos)
+J9jogPosBut.bind("<ButtonRelease>", StopJog)
+J9jogPosBut.place(x=105, y=65, width=30, height=25)
+J9negLimLab = Label(J9jogFrame, font=("Arial", 8), text = str(-J9axisLimNeg), style="Jointlim.TLabel")
+J9negLimLab.place(x=10, y=30)
+J9posLimLab = Label(J9jogFrame, font=("Arial", 8), text = str(J9axisLimPos), style="Jointlim.TLabel")
+J9posLimLab.place(x=110, y=30)
+J9slideLimLab = Label(J9jogFrame)
+J9slideLimLab.place(x=60, y=70)
+def J9sliderUpdate(foo):
+  J9slideLimLab.config(text=round(float(J9jogslide.get()),2))   
+def J9sliderExecute(foo): 
+  J9delta = float(J9jogslide.get()) - float(J9curAngEntryField.get())
+  if (J9delta < 0):
+    J9jogNeg(abs(J9delta))
+  else:
+    J9jogPos(abs(J9delta))       
+J9jogslide = Scale(J9jogFrame, from_=-J9axisLimNeg, to=J9axisLimPos,  length=125, orient=HORIZONTAL,  command=J9sliderUpdate)
+J9jogslide.bind("<ButtonRelease-1>", J9sliderExecute)
+J9jogslide.place(x=10, y=43)
 
 
 ####ENTRY FIELDS##########################################################
@@ -6631,10 +7380,6 @@ visPassLab.place(x=1107, y=670)
 
 ProgBut = Button(tab1,  text="Load Program",   command = loadProg)
 ProgBut.place(x=202, y=42)
-
-ResetDriveBut = Button(tab1,  text="Reset Drives",   command = ResetDrives)
-#ResetDriveBut.place(x=307, y=42)
-
 
 
 runProgBut = Button(tab1,   command = runProg)
@@ -7017,20 +7762,60 @@ UFRzLab.place(x=1120, y=90)
 comLab = Label(tab2, text = "Communication")
 comLab.place(x=72, y=60)
 
-jointCalLab = Label(tab2, text = "Joint Calibration")
+jointCalLab = Label(tab2, text = "Robot Calibration")
 jointCalLab.place(x=290, y=60)
 
 axis7Lab = Label(tab2, text = "7th Axis Calibration")
-axis7Lab.place(x=65, y=300)
+axis7Lab.place(x=665, y=300)
 
 axis7lengthLab = Label(tab2, text = "7th Axis Length:")
-axis7lengthLab.place(x=51, y=340)
+axis7lengthLab.place(x=651, y=340)
 
 axis7rotLab = Label(tab2, text = "MM per Rotation:")
-axis7rotLab.place(x=45, y=370)
+axis7rotLab.place(x=645, y=370)
 
 axis7stepsLab = Label(tab2, text = "Drive Steps:")
-axis7stepsLab.place(x=75, y=400)
+axis7stepsLab.place(x=675, y=400)
+
+axis7pinsetLab = Label(tab2,font=("Arial", 8), text = "StepPin = 12 / DirPin = 13 / CalPin = 36")
+axis7pinsetLab.place(x=627, y=510)
+
+axis8pinsetLab = Label(tab2,font=("Arial", 8), text = "StepPin = 32 / DirPin = 33 / CalPin = 37")
+axis8pinsetLab.place(x=827, y=510)
+
+axis9pinsetLab = Label(tab2,font=("Arial", 8), text = "StepPin = 34 / DirPin = 35 / CalPin = 38")
+axis9pinsetLab.place(x=1027, y=510)
+
+
+
+
+
+axis8Lab = Label(tab2, text = "8th Axis Calibration")
+axis8Lab.place(x=865, y=300)
+
+axis8lengthLab = Label(tab2, text = "8th Axis Length:")
+axis8lengthLab.place(x=851, y=340)
+
+axis8rotLab = Label(tab2, text = "MM per Rotation:")
+axis8rotLab.place(x=845, y=370)
+
+axis8stepsLab = Label(tab2, text = "Drive Steps:")
+axis8stepsLab.place(x=875, y=400)
+
+
+axis9Lab = Label(tab2, text = "9th Axis Calibration")
+axis9Lab.place(x=1065, y=300)
+
+axis9lengthLab = Label(tab2, text = "9th Axis Length:")
+axis9lengthLab.place(x=1051, y=340)
+
+axis9rotLab = Label(tab2, text = "MM per Rotation:")
+axis9rotLab.place(x=1045, y=370)
+
+axis9stepsLab = Label(tab2, text = "Drive Steps:")
+axis9stepsLab.place(x=1075, y=400)
+
+
 
 
 
@@ -7054,6 +7839,19 @@ J5calLab.place(x=480, y=210)
 
 J6calLab = Label(tab2, text = "J6 Offset")
 J6calLab.place(x=480, y=240)
+
+J7calLab = Label(tab2, text = "J7 Offset")
+J7calLab.place(x=480, y=280)
+
+J8calLab = Label(tab2, text = "J8 Offset")
+J8calLab.place(x=480, y=310)
+
+J9calLab = Label(tab2, text = "J9 Offset")
+J9calLab.place(x=480, y=340)
+
+
+
+
 
 CalibrationOffsetsLab = Label(tab2, text = "Encoder Control")
 CalibrationOffsetsLab.place(x=715, y=60)
@@ -7129,8 +7927,26 @@ J6calCbut2.place(x=355, y=200)
 
 
 
-TRzerobut = Button(tab2, text=" Set Axis 7 Calibration to Zero ",    command = zeroAxis7)
-TRzerobut.place(x=40, y=440)
+J7zerobut = Button(tab2, text="Set Axis 7 Calibration to Zero",  width=28, command = zeroAxis7)
+J7zerobut.place(x=627, y=440)
+
+J8zerobut = Button(tab2, text="Set Axis 8 Calibration to Zero",  width=28, command = zeroAxis8)
+J8zerobut.place(x=827, y=440)
+
+J9zerobut = Button(tab2, text="Set Axis 9 Calibration to Zero",  width=28, command = zeroAxis9)
+J9zerobut.place(x=1027, y=440)
+
+J7calbut = Button(tab2, text="Autocalibrate Axis 7",  width=28, command = calRobotJ7)
+J7calbut.place(x=627, y=475)
+
+J8calbut = Button(tab2, text="Autocalibrate Axis 8",  width=28, command = calRobotJ8)
+J8calbut.place(x=827, y=475)
+
+J9calbut = Button(tab2, text="Autocalibrate Axis 9",  width=28, command = calRobotJ9)
+J9calbut.place(x=1027, y=475)
+
+
+
 
 CalJ1But = Button(tab2,   text="Calibrate J1 Only",   command = calRobotJ1)
 CalJ1But.place(x=285, y=240)
@@ -7147,8 +7963,8 @@ CalJ4But.place(x=285, y=330)
 CalJ5But = Button(tab2,   text="Calibrate J5 Only",   command = calRobotJ5)
 CalJ5But.place(x=285, y=360)
 
-CalJ5But = Button(tab2,   text="Calibrate J6 Only",   command = calRobotJ6)
-CalJ5But.place(x=285, y=390)
+CalJ6But = Button(tab2,   text="Calibrate J6 Only",   command = calRobotJ6)
+CalJ6But.place(x=285, y=390)
 
 CalZeroBut = Button(tab2,   text="Force Cal. to 0° Home",  width=20,   command = CalZeroPos)
 CalZeroBut.place(x=270, y=425)
@@ -7212,14 +8028,43 @@ J5calOffEntryField.place(x=540, y=210)
 J6calOffEntryField = Entry(tab2,width=8)
 J6calOffEntryField.place(x=540, y=240)
 
+J7calOffEntryField = Entry(tab2,width=8)
+J7calOffEntryField.place(x=540, y=280)
+
+J8calOffEntryField = Entry(tab2,width=8)
+J8calOffEntryField.place(x=540, y=310)
+
+J9calOffEntryField = Entry(tab2,width=8)
+J9calOffEntryField.place(x=540, y=340)
+
+
+
 axis7lengthEntryField = Entry(tab2,width=6)
-axis7lengthEntryField.place(x=150, y=340)
+axis7lengthEntryField.place(x=750, y=340)
 
 axis7rotEntryField = Entry(tab2,width=6)
-axis7rotEntryField.place(x=150, y=370)
+axis7rotEntryField.place(x=750, y=370)
 
 axis7stepsEntryField = Entry(tab2,width=6)
-axis7stepsEntryField.place(x=150, y=400)
+axis7stepsEntryField.place(x=750, y=400)
+
+axis8lengthEntryField = Entry(tab2,width=6)
+axis8lengthEntryField.place(x=950, y=340)
+
+axis8rotEntryField = Entry(tab2,width=6)
+axis8rotEntryField.place(x=950, y=370)
+
+axis8stepsEntryField = Entry(tab2,width=6)
+axis8stepsEntryField.place(x=950, y=400)
+
+axis9lengthEntryField = Entry(tab2,width=6)
+axis9lengthEntryField.place(x=1150, y=340)
+
+axis9rotEntryField = Entry(tab2,width=6)
+axis9rotEntryField.place(x=1150, y=370)
+
+axis9stepsEntryField = Entry(tab2,width=6)
+axis9stepsEntryField.place(x=1150, y=400)
 
 
 
@@ -7238,15 +8083,6 @@ TFryEntryField.place(x=1070, y=115)
 TFrxEntryField = Entry(tab2,width=5)
 TFrxEntryField.place(x=1110, y=115)
 
-
-
-
-TrackLengthEntryField = Entry(tab2,width=8)
-#TrackLengthEntryField.place(x=380, y=630)
-
-
-TrackStepLimEntryField = Entry(tab2,width=8)
-#TrackStepLimEntryField.place(x=380, y=655)
 
 
 
@@ -8440,9 +9276,9 @@ TFz         =calibration.get("24")
 TFrx        =calibration.get("25")
 TFry        =calibration.get("26")
 TFrz        =calibration.get("27")
-TrackcurPos =calibration.get("28")
-TrackLength =calibration.get("29")
-TrackStepLim=calibration.get("30")
+J7PosCur    =calibration.get("28")
+J8PosCur    =calibration.get("29")
+J9PosCur    =calibration.get("30")
 VisFileLoc  =calibration.get("31")
 VisProg     =calibration.get("32")
 VisOrigXpix =calibration.get("33")
@@ -8473,10 +9309,10 @@ J3CalStatVal= calibration.get("57")
 J4CalStatVal= calibration.get("58")
 J5CalStatVal= calibration.get("59")
 J6CalStatVal= calibration.get("60")
-TRlength    = calibration.get("61")
-TRrotation  = calibration.get("62")
-TRsteps     = calibration.get("63")
-TRStepCur   = calibration.get("64")
+J7axisLimPos= calibration.get("61")
+J7rotation  = calibration.get("62")
+J7steps     = calibration.get("63")
+J7StepCur   = calibration.get("64") #is this used
 J1CalStatVal2= calibration.get("65")
 J2CalStatVal2= calibration.get("66")
 J3CalStatVal2= calibration.get("67")
@@ -8505,6 +9341,15 @@ mX1val      = calibration.get("89")
 mY1val      = calibration.get("90")
 mX2val      = calibration.get("91")
 mY2val      = calibration.get("92")
+J8length    = calibration.get("93")
+J8rotation  = calibration.get("94")
+J8steps     = calibration.get("95")
+J9length    = calibration.get("96")
+J9rotation  = calibration.get("97")
+J9steps     = calibration.get("98")
+J7calOff    = calibration.get("99")
+J8calOff    = calibration.get("100")
+J9calOff    = calibration.get("101")
 
 
 ####
@@ -8645,9 +9490,9 @@ TFzEntryField.insert(0,str(TFz))
 TFrxEntryField.insert(0,str(TFrx))
 TFryEntryField.insert(0,str(TFry))
 TFrzEntryField.insert(0,str(TFrz))
-TRcurAngEntryField.insert(0,str(TrackcurPos))
-TrackLengthEntryField.insert(0,str(TrackLength))
-TrackStepLimEntryField.insert(0,str(TrackStepLim))
+J7curAngEntryField.insert(0,str(J7PosCur))
+J8curAngEntryField.insert(0,str(J8PosCur))
+J9curAngEntryField.insert(0,str(J9PosCur))
 VisFileLocEntryField.insert(0,str(VisFileLoc))
 #visoptions.set(VisProg)
 VisPicOxPEntryField.insert(0,str(VisOrigXpix))
@@ -8664,6 +9509,9 @@ J3calOffEntryField.insert(0,str(J3calOff))
 J4calOffEntryField.insert(0,str(J4calOff))
 J5calOffEntryField.insert(0,str(J5calOff))
 J6calOffEntryField.insert(0,str(J6calOff))
+J7calOffEntryField.insert(0,str(J7calOff))
+J8calOffEntryField.insert(0,str(J8calOff))
+J9calOffEntryField.insert(0,str(J9calOff))
 if (J1OpenLoopVal == 1):
   J1OpenLoopStat.set(True)
 if (J2OpenLoopVal == 1):
@@ -8704,9 +9552,9 @@ if (J5CalStatVal2 == 1):
   J5CalStat2.set(True)
 if (J6CalStatVal2 == 1):
   J6CalStat2.set(True)    
-axis7lengthEntryField.insert(0,str(TRlength))
-axis7rotEntryField.insert(0,str(TRrotation))
-axis7stepsEntryField.insert(0,str(TRsteps))
+axis7lengthEntryField.insert(0,str(J7axisLimPos))
+axis7rotEntryField.insert(0,str(J7rotation))
+axis7stepsEntryField.insert(0,str(J7steps))
 VisBrightSlide.set(VisBrightVal)
 VisContrastSlide.set(VisContVal)
 VisBacColorEntryField.insert(0,str(VisBacColor))
@@ -8733,6 +9581,13 @@ mX1 = mX1val
 mY1 = mY1val
 mX2 = mX2val
 mY2 = mY2val
+axis8lengthEntryField.insert(0,str(J8length))
+axis8rotEntryField.insert(0,str(J8rotation))
+axis8stepsEntryField.insert(0,str(J8steps))
+axis9lengthEntryField.insert(0,str(J9length))
+axis9rotEntryField.insert(0,str(J9rotation))
+axis9stepsEntryField.insert(0,str(J9steps))
+
 
 
 
