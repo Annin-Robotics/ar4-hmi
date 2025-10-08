@@ -1,3 +1,3 @@
-# ar3 Control Software
-Annin Robotics AR3 Software Library
-- Version 1.0
+# AR4-Mk1 Control Software
+Annin Robotics AR4-Mk1 Software Library
+- Version 1.1
