@@ -1,0 +1,5 @@
+#to convert source to exe install auto-py-to-exe:
+  python -m pip install auto-py-to-exe
+
+#execute application:
+  python -m auto_py_to_exe

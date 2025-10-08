@@ -1,3 +1,3 @@
-# ar4-hmi
+# ar2 Control Software
 Annin Robotics AR2 Software Library
-- Version 1.5
+- Version 2.0
