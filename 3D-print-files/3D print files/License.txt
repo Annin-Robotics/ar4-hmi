@@ -1,0 +1,11 @@
+    AR2 - Stepper motor robot 3D solid models
+    Copyright (c) 2017, Chris Annin
+    All rights reserved.
+
+    These solid models are provided as a courtesy and are not for redistribution.
+
+        * These models are provided for personal use only.
+        * You may not sell, market, barter or profit from parts created directly
+          or indirectly from any of these models made out of any material.
+
+    chris.annin@gmail.com

@@ -1,0 +1,34 @@
+(S'##BEGINNING OF PROGRAM##'
+p0
+S'Tab Number 1'
+p1
+S'Call Program - home'
+p2
+S'Move J [*]  X) 326.499   Y) -0.114   Z) 119.651   W) -89.97   P) 179.91   R) -89.969   T) 40.0   Speed-75 Ad 15 As 10 Dd 20 Ds 5 $F'
+p3
+S'Move J [*]  X) -0.057   Y) -326.499   Z) 119.651   W) 0.02   P) 179.91   R) -89.969   T) 40.0   Speed-40 Ad 15 As 10 Dd 20 Ds 5 $F'
+p4
+S'Move J [*]  X) -0.028   Y) -159.106   Z) 419.381   W) 0.01   P) 99.91   R) -89.98   T) 40.0   Speed-75 Ad 15 As 10 Dd 20 Ds 5 $F'
+p5
+S'Move J [*]  X) -0.028   Y) -159.106   Z) 419.381   W) 0.01   P) 99.91   R) -89.98   T) 389.972   Speed-75 Ad 15 As 10 Dd 20 Ds 5 $F'
+p6
+S'Move J [*]  X) 79.625   Y) 137.748   Z) 419.381   W) -149.97   P) 99.91   R) -89.98   T) 389.972   Speed-75 Ad 15 As 10 Dd 20 Ds 5 $F'
+p7
+S'Move J [*]  X) 23.083   Y) 349.262   Z) 490.29   W) -138.861   P) 106.096   R) -26.662   T) 40.0   Speed-75 Ad 15 As 10 Dd 20 Ds 5 $F'
+p8
+S'Move J [*]  X) -26.391   Y) 140.098   Z) 371.512   W) 132.417   P) 98.734   R) 170.75   T) 40.0   Speed-75 Ad 15 As 10 Dd 20 Ds 5 $F'
+p9
+S'Call Program - home'
+p10
+S'Move J [*]  X) 277.971   Y) 9.126   Z) 440.733   W) 136.021   P) 159.523   R) 162.931   T) 40.0   Speed-75 Ad 15 As 10 Dd 20 Ds 5 $N'
+p11
+S'Move J [*]  X) 278.08   Y) 9.7   Z) 508.521   W) 138.12   P) 21.061   R) 13.934   T) 40.0   Speed-75 Ad 15 As 10 Dd 20 Ds 5 $F'
+p12
+S'Move J [*]  X) 277.971   Y) 9.126   Z) 440.733   W) 136.021   P) 159.523   R) 162.931   T) 40.0   Speed-75 Ad 15 As 10 Dd 20 Ds 5 $N'
+p13
+S'Move J [*]  X) 278.08   Y) 9.7   Z) 508.521   W) 138.12   P) 21.061   R) 13.934   T) 40.0   Speed-75 Ad 15 As 10 Dd 20 Ds 5 $F'
+p14
+S'Call Program - rest'
+p15
+tp16
+.
