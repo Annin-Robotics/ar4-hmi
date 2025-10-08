@@ -1,3 +1,3 @@
 # AR4-Mk1 Control Software
 Annin Robotics AR4-Mk1 Software Library
-- Version 1.1
+- Version 2.0
