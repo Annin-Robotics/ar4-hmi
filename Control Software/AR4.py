@@ -1,5 +1,5 @@
 ############################################################################
-## Version AR4 2.0 #########################################################
+## Version AR4 2.2 #########################################################
 ############################################################################
 """ AR4 - robot control software
     Copyright (c) 2021, Chris Annin
@@ -47,6 +47,7 @@
   VERSION 1.2 4/21/22 added timeout to ser com
   VERSION 1.3 6/17/22 removed timeout ser com - modified cal file
   VERSION 2.0 10/1/22 added spline lookahead
+  VERSION 2.2 11/6/22 added opencv integrated vision tab
 
 '''
 ##########################################################################
@@ -59,8 +60,12 @@ from os import execv
 from tkinter import *
 from tkinter.ttk import *
 from tkinter import ttk
+from tkinter import simpledialog
 from ttkthemes import ThemedStyle
 from tkinter import messagebox
+from PIL import Image, ImageTk
+from matplotlib import pyplot as plt
+from pygrabber.dshow_graph import FilterGraph
 
 import pickle
 import serial
@@ -72,10 +77,19 @@ import tkinter.messagebox
 import webbrowser
 import numpy as np
 import datetime
+import cv2
+import pathlib
+import os
+import operator
+from numpy import mean
+
+DIR = pathlib.Path(__file__).parent.resolve()
+
+cropping = False
 
 
 root = Tk()
-root.wm_title("AR4 Software Ver 2.0")
+root.wm_title("AR4 Software Ver 2.2")
 root.iconbitmap(r'AR.ico')
 root.resizable(width=False, height=False)
 root.geometry('1536x792+0+0')
@@ -141,6 +155,21 @@ J6CalStat2 = IntVar()
 global IncJogStat
 IncJogStat = IntVar()
 
+global fullRot
+fullRot = IntVar()
+
+global pick180
+pick180 = IntVar()
+
+global pickClosest
+pickClosest = IntVar()
+
+global autoBG
+autoBG = IntVar()
+
+
+
+
 global SplineTrue;
 SplineTrue = False;
 
@@ -200,6 +229,9 @@ nb.add(tab7, text='   Info    ')
 tab10 = tkinter.ttk.Frame(nb)
 #nb.add(tab10, text='   Testing    ')
 
+
+cam_on = False
+cap = None
 
 ###############################################################################################################################################################
 ### STARTUP DEFS ################################################################################################################# COMMUNICATION DEFS ###
@@ -361,20 +393,20 @@ def stepFwd():
     tab1.progView.selection_clear(0, END)
     selRow += 1
     tab1.progView.select_set(selRow)
-    time.sleep(.2)
-    command = "RP\n" 
-    cmdSentEntryField.delete(0, 'end')
-    cmdSentEntryField.insert(0,command)
-    ser.write(command.encode())
-    ser.flushInput()
-    time.sleep(.05)
-    response = str(ser.readline().strip(),'utf-8')
-    displayPosition(response) 
-    if (selRow >= tab1.progView.size()): 
-        curRowEntryField.delete(0, 'end')
-        curRowEntryField.insert(0,"---") 
-        tab1.runTrue = 0
-        time.sleep(.01)
+    #time.sleep(.2)
+    #command = "RP\n" 
+    #cmdSentEntryField.delete(0, 'end')
+    #cmdSentEntryField.insert(0,command)
+    #ser.write(command.encode())
+    #ser.flushInput()
+    #time.sleep(.05)
+    #response = str(ser.readline().strip(),'utf-8')
+    #displayPosition(response) 
+    #if (selRow >= tab1.progView.size()): 
+        #curRowEntryField.delete(0, 'end')
+        #curRowEntryField.insert(0,"---") 
+        #tab1.runTrue = 0
+        #time.sleep(.01)
     try:
       selRow = tab1.progView.curselection()[0]
       curRowEntryField.delete(0, 'end')
@@ -789,11 +821,6 @@ def executeRow():
       regEqVal = str(command[regEqIndex+3:])    
     eval(regEntry).delete(0, 'end')
     eval(regEntry).insert(0,regEqVal)
-  ## Get Vision ##
-  if (cmdType == "Get Vi"):
-    if (moveInProc == 1):
-      moveInProc == 2
-    testvis()	
   ##If Register Jump to Row##
   if (cmdType == "If Reg"):
     if (moveInProc == 1):
@@ -954,6 +981,57 @@ def executeRow():
     else:
       displayPosition(response)  
 
+  ##Move Vis Command##  
+  if (cmdType == "Move V"): 
+    if (moveInProc == 0):
+      moveInProc == 1
+    SPnewInex = command.find("[ PR: ")  
+    SPendInex = command.find(" ] [")
+    xIndex = command.find(" X ")
+    yIndex = command.find(" Y ")
+    zIndex = command.find(" Z ")
+    rzIndex = command.find(" Rz ")
+    ryIndex = command.find(" Ry ")
+    rxIndex = command.find(" Rx ")
+    trIndex = command.find(" Tr ")	
+    SpeedIndex = command.find(" S")
+    ACCspdIndex = command.find(" Ac ")
+    DECspdIndex = command.find(" Dc ")
+    ACCrampIndex = command.find(" Rm ")
+    WristConfIndex = command.find(" $")
+    SP = str(command[SPnewInex+6:SPendInex])
+    cx = eval("SP_"+SP+"_E1_EntryField").get()
+    cy = eval("SP_"+SP+"_E2_EntryField").get()
+    cz = eval("SP_"+SP+"_E3_EntryField").get()
+    crz = eval("SP_"+SP+"_E4_EntryField").get()
+    cry = eval("SP_"+SP+"_E5_EntryField").get()
+    crx = eval("SP_"+SP+"_E6_EntryField").get()
+    xVal = str(float(cx) + float(VisRetXrobEntryField.get()))
+    yVal = str(float(cy) + float(VisRetYrobEntryField.get()))
+    zVal = str(float(cz) + float(command[zIndex+3:rzIndex]))
+    rzVal = str(float(crz) + float(command[rzIndex+4:ryIndex]))
+    ryVal = str(float(cry) + float(command[ryIndex+4:rxIndex]))
+    rxVal = str(float(crx) + float(command[rxIndex+4:trIndex]))
+    trVal = command[trIndex+4:SpeedIndex]
+    speedPrefix = command[SpeedIndex+1:SpeedIndex+3]
+    Speed = command[SpeedIndex+4:ACCspdIndex]
+    ACCspd = command[ACCspdIndex+4:DECspdIndex]
+    DECspd = command[DECspdIndex+4:ACCrampIndex]
+    ACCramp = command[ACCrampIndex+4:WristConfIndex]
+    WC = command[WristConfIndex+3:]
+    visRot = VisRetAngleEntryField.get()
+    command = "MV"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Vr"+visRot+"\n"
+    cmdSentEntryField.delete(0, 'end')
+    cmdSentEntryField.insert(0,command)
+    ser.write(command.encode())
+    ser.flushInput()
+    time.sleep(.2)
+    response = str(ser.readline().strip(),'utf-8')
+    if (response[:1] == 'E'):
+      ErrorHandler(response)   
+    else:
+      displayPosition(response)      
+
   ##Move PR Command##  
   if (cmdType == "Move P"): 
     if (moveInProc == 0):
@@ -1073,6 +1151,7 @@ def executeRow():
     Rounding = command[RoundingIndex+5:WristConfIndex]
     WC = command[WristConfIndex+3:]
     command = "ML"+"X"+xVal+"Y"+yVal+"Z"+zVal+"Rz"+rzVal+"Ry"+ryVal+"Rx"+rxVal+"Tr"+trVal+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"Rnd"+Rounding+"W"+WC+"\n"
+  
     cmdSentEntryField.delete(0, 'end')
     cmdSentEntryField.insert(0,command)
     ser.write(command.encode())
@@ -1365,6 +1444,50 @@ def executeRow():
     else:
       displayPosition(response) 
 
+  ##Camera On
+  if(cmdType == "Cam On"):
+    if (moveInProc == 1):
+      moveInProc == 2
+    start_vid()
+
+  ##Camera Off
+  if(cmdType == "Cam Of"):
+    if (moveInProc == 1):
+      moveInProc == 2
+    stop_vid()  
+
+  ##Vision Find
+  if(cmdType == "Vis Fi"):
+    #if (moveInProc == 1):
+      #moveInProc == 2
+    templateIndex = command.find("Vis Find - ")
+    bgColorIndex = command.find(" - BGcolor ")
+    scoreIndex = command.find(" Score ")
+    passIndex = command.find(" Pass ")
+    failIndex = command.find(" Fail ")
+    template = command[templateIndex+11:bgColorIndex]
+    checkBG = command[bgColorIndex+11:scoreIndex]
+    if(checkBG == "(Auto)"):
+      background = "Auto"
+    else:  
+      background = eval(command[bgColorIndex+11:scoreIndex])
+    min_score = float(command[scoreIndex+7:passIndex])*.01
+    passtab = command[passIndex+6:failIndex]
+    failtab = command[failIndex+6:]
+    take_pic()
+    status = visFind(template,min_score,background)
+    if (status == "pass"):
+      tabIndex = command.find("Tab-")
+      index = tab1.progView.get(0, "end").index("Tab Number " + passtab)
+      tab1.progView.selection_clear(0, END)
+      tab1.progView.select_set(index)  
+    elif (status == "fail"): 
+      tabIndex = command.find("Tab-")
+      index = tab1.progView.get(0, "end").index("Tab Number " + failtab)
+      tab1.progView.selection_clear(0, END)
+      tab1.progView.select_set(index) 
+
+    
   rowinproc = 0
   
 
@@ -3286,6 +3409,14 @@ def teachInsertBelSelected():
     tab1.progView.select_set(selRow)
     value=tab1.progView.get(0,END)
     pickle.dump(value,open(ProgEntryField.get(),"wb"))
+  if(movetype == "Move Vis"):
+    movetype = movetype+" [ PR: "+str(SavePosEntryField.get())+" ]"
+    newPos = movetype + " [*] X "+XcurPos+" Y "+YcurPos+" Z "+ZcurPos+" Rz "+RzcurPos+" Ry "+RycurPos+" Rx "+RxcurPos+" Tr "+TrackcurPos+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC              
+    tab1.progView.insert(selRow, newPos) 
+    tab1.progView.selection_clear(0, END)
+    tab1.progView.select_set(selRow)
+    value=tab1.progView.get(0,END)
+    pickle.dump(value,open(ProgEntryField.get(),"wb"))  
   elif(movetype == "Move PR"):
     movetype = movetype+" [ PR: "+str(SavePosEntryField.get())+" ]"
     newPos = movetype + " [*]"+" Tr "+TrackcurPos+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC            
@@ -3553,7 +3684,7 @@ def jumpTab():
   pickle.dump(value,open(ProgEntryField.get(),"wb"))
   tabNumEntryField.delete(0, 'end')
  
-def getvision():
+def cameraOn():
   try:
     selRow = tab1.progView.curselection()[0]
     selRow += 1
@@ -3561,12 +3692,27 @@ def getvision():
     last = tab1.progView.index('end')
     selRow = last
     tab1.progView.select_set(selRow)
-  value = "Get Vision"
+  value = "Cam On"
   tab1.progView.insert(selRow, value) 
   value=tab1.progView.get(0,END)
   tab1.progView.selection_clear(0, END)
   tab1.progView.select_set(selRow)
   pickle.dump(value,open(ProgEntryField.get(),"wb"))
+
+def cameraOff():
+  try:
+    selRow = tab1.progView.curselection()[0]
+    selRow += 1
+  except:
+    last = tab1.progView.index('end')
+    selRow = last
+    tab1.progView.select_set(selRow)
+  value = "Cam Off"
+  tab1.progView.insert(selRow, value) 
+  value=tab1.progView.get(0,END)
+  tab1.progView.selection_clear(0, END)
+  tab1.progView.select_set(selRow)
+  pickle.dump(value,open(ProgEntryField.get(),"wb"))  
   
 def IfOnjumpTab():
   try:
@@ -3676,6 +3822,39 @@ def insertReturn():
   tab1.progView.select_set(selRow)  
   value=tab1.progView.get(0,END)
   pickle.dump(value,open(ProgEntryField.get(),"wb"))
+
+
+def insertvisFind():
+  global ZcurPos
+  global RxcurPos
+  global RycurPos
+  global RzcurPos
+  try:
+    selRow = tab1.progView.curselection()[0]
+    selRow += 1
+  except:
+    last = tab1.progView.index('end')
+    selRow = last
+    tab1.progView.select_set(selRow)
+  template = selectedTemplate.get()
+  if (template == ""):
+    template = "None_Selected.jpg"
+  autoBGVal = int(autoBG.get())  
+  if (autoBGVal == 1):
+    BGcolor = "(Auto)"
+  else:
+    BGcolor = VisBacColorEntryField.get()
+  score = VisScoreEntryField.get()
+  passTab = visPassEntryField.get()
+  failTab = visFailEntryField.get()
+  value = "Vis Find - "+template+" - BGcolor "+BGcolor+" Score "+score+" Pass "+passTab+" Fail "+failTab
+  #value = "Vis Find - "+template+" - BGcolor "+BGcolor+" Score "+score+" Z Height "+ZcurPos+" Rz "+RzcurPos+" Ry "+RycurPos+" Rx "+RxcurPos+" Pass "+passTab+" Fail "+failTab
+  tab1.progView.insert(selRow, value)
+  tab1.progView.selection_clear(0, END) 
+  tab1.progView.select_set(selRow)  
+  value=tab1.progView.get(0,END)
+  pickle.dump(value,open(ProgEntryField.get(),"wb"))
+
 
 def IfRegjumpTab():
   try:
@@ -4476,11 +4655,13 @@ def SaveAndApplyCalibration():
   TRlength     = float(axis7lengthEntryField.get())
   TRrotation   = float(axis7rotEntryField.get())
   TRsteps      = float(axis7stepsEntryField.get())
-  toolFrame()
-  time.sleep(.5)
-  calAxis7()
+  try:
+    toolFrame()
+    time.sleep(.5)
+    calAxis7()
+  except:
+    print("no serial connection with Teensy board")  
   savePosData()
-
 
 def savePosData():
   global J1AngCur
@@ -4499,6 +4680,10 @@ def savePosData():
   global TRlength
   global TRrotation
   global TRsteps
+  global mX1
+  global mY1
+  global mX2
+  global mY2
   calibration.delete(0, END)
   calibration.insert(END, J1AngCur)
   calibration.insert(END, J2AngCur)
@@ -4571,6 +4756,30 @@ def savePosData():
   calibration.insert(END, J4CalStatVal2)
   calibration.insert(END, J5CalStatVal2)
   calibration.insert(END, J6CalStatVal2)
+  calibration.insert(END, VisBrightSlide.get())
+  calibration.insert(END, VisContrastSlide.get())
+  calibration.insert(END, VisBacColorEntryField.get())  
+  calibration.insert(END, VisScoreEntryField.get())
+  calibration.insert(END, VisX1PixEntryField.get())
+  calibration.insert(END, VisY1PixEntryField.get())
+  calibration.insert(END, VisX2PixEntryField.get())
+  calibration.insert(END, VisY2PixEntryField.get())
+  calibration.insert(END, VisX1RobEntryField.get())
+  calibration.insert(END, VisY1RobEntryField.get())
+  calibration.insert(END, VisX2RobEntryField.get())
+  calibration.insert(END, VisY2RobEntryField.get())
+  calibration.insert(END, VisZoomSlide.get())
+  calibration.insert(END, pick180.get())
+  calibration.insert(END, pickClosest.get())
+  calibration.insert(END, visoptions.get())
+  calibration.insert(END, fullRot.get()) 
+  calibration.insert(END, autoBG.get())
+  calibration.insert(END, mX1)
+  calibration.insert(END, mY1)
+  calibration.insert(END, mX2)
+  calibration.insert(END, mY2)       
+
+
   
   ###########
   value=calibration.get(0,END)
@@ -4650,7 +4859,7 @@ def ErrorHandler(response):
     message = "Axis Limit Error - See Log"
     almStatusLab.config(text=message, style="Alarm.TLabel")
     almStatusLab2.config(text=message, style="Alarm.TLabel")
-    stopProg()
+    #stopProg()
   ##COLLISION ERROR   
   elif (response[1:2] == 'C'):
     if (J1OpenLoopStat.get() == 0):
@@ -4910,43 +5119,793 @@ def xyr():
     
   
 
-def viscalc(x,y):
-  global VisOrigXpix
-  global VisOrigXmm
-  global VisOrigYpix
-  global VisOrigYmm
-  global VisEndXpix
-  global VisEndXmm
-  global VisEndYpix
-  global VisEndYmm
-  global Xpos
-  global Ypos
+def viscalc():
+  global xMMpos
+  global yMMpos
+  #origin x1 y1
+  VisOrigXpix = float(VisX1PixEntryField.get())
+  VisOrigXmm = float(VisX1RobEntryField.get()) 
+  VisOrigYpix = float(VisY1PixEntryField.get()) 
+  VisOrigYmm = float(VisY1RobEntryField.get()) 
+  # x2 y2
+  VisEndXpix = float(VisX2PixEntryField.get())
+  VisEndXmm = float(VisX2RobEntryField.get()) 
+  VisEndYpix = float(VisY2PixEntryField.get()) 
+  VisEndYmm = float(VisY2RobEntryField.get())
+
+  x = float(VisRetXpixEntryField.get()) 
+  y = float(VisRetYpixEntryField.get()) 
+
   XPrange = float(VisEndXpix) - float(VisOrigXpix)
   XPratio = (x-float(VisOrigXpix)) / XPrange
   XMrange = float(VisEndXmm) - float(VisOrigXmm)
   XMpos = float(XMrange) * float(XPratio)
-  Xpos = float(VisOrigXmm) + XMpos
+  xMMpos = float(VisOrigXmm) + XMpos
   ##
   YPrange = float(VisEndYpix) - float(VisOrigYpix)
   YPratio = (y-float(VisOrigYpix)) / YPrange
   YMrange = float(VisEndYmm) - float(VisOrigYmm)
   YMpos = float(YMrange) * float(YPratio)
-  Ypos = float(VisOrigYmm) + YMpos
-  return (Xpos,Ypos)
+  yMMpos = float(VisOrigYmm) + YMpos
+  return (xMMpos,yMMpos)
 
 
-def posRegFieldVisible(self):
-  curCmdtype = options.get()
-  if (curCmdtype=="Move PR" or curCmdtype=="OFF PR " or curCmdtype=="Teach PR"):
-    SavePosEntryField.place(x=800, y=183)
+
+
+
+# Define function to show frame
+def show_frame():
+
+    if cam_on:
+
+        ret, frame = cap.read()    
+
+        if ret:
+            cv2image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)    
+            img = Image.fromarray(cv2image).resize((480,320))
+            imgtk = ImageTk.PhotoImage(image=img)        
+            live_lbl.imgtk = imgtk    
+            live_lbl.configure(image=imgtk)    
+        
+        live_lbl.after(10, show_frame)
+
+def start_vid():
+    global cam_on, cap
+    global cap
+    stop_vid()
+    cam_on = True
+    curVisStingSel = visoptions.get()
+    l = len(camList)
+    for i in range(l):
+      if (visoptions.get() == camList[i]):
+        selectedCam = i
+    cap = cv2.VideoCapture(selectedCam) 
+    show_frame()
+
+def stop_vid():
+    global cam_on
+    cam_on = False
+    
+    if cap:
+        cap.release()
+
+#vismenu.size
+
+def take_pic():
+  global selectedCam
+  global cap
+  global BGavg
+  global mX1
+  global mY1
+  global mX2
+  global mY2
+
+  if(cam_on == True):
+    ret, frame = cap.read()
   else:
-    SavePosEntryField.place_forget()
+    curVisStingSel = visoptions.get()
+    l = len(camList)
+    for i in range(l):
+      if (visoptions.get() == camList[i]):
+        selectedCam = i
+        #print(selectedCam) 
+    cap = cv2.VideoCapture(selectedCam) 
+    ret, frame = cap.read()
+
+  brightness = int(VisBrightSlide.get())
+  contrast = int(VisContrastSlide.get())
+  zoom = int(VisZoomSlide.get())
+
+  #manEntryField.delete(0, 'end')
+  #manEntryField.insert(0,str(zoom))
+
+  frame = np.int16(frame)
+  frame = frame * (contrast/127+1) - contrast + brightness
+  frame = np.clip(frame, 0, 255)
+  frame = np.uint8(frame) 
+  cv2image = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) 
+  
+
+  #get the webcam size
+  height, width = cv2image.shape
+
+  #prepare the crop
+  centerX,centerY=int(height/2),int(width/2)
+  radiusX,radiusY= int(zoom*height/100),int(zoom*width/100)
+
+  minX,maxX=centerX-radiusX,centerX+radiusX
+  minY,maxY=centerY-radiusY,centerY+radiusY
+
+  cropped = cv2image[minX:maxX, minY:maxY]
+  cv2image = cv2.resize(cropped, (width, height))
+
+  autoBGVal = int(autoBG.get())
+  if(autoBGVal==1):
+    BG1 = cv2image[int(VisX1PixEntryField.get())][int(VisY1PixEntryField.get())]
+    BG2 = cv2image[int(VisX1PixEntryField.get())][int(VisY2PixEntryField.get())]
+    BG3 = cv2image[int(VisX2PixEntryField.get())][int(VisY2PixEntryField.get())]
+    avg = int(mean([BG1,BG2,BG3]))
+    BGavg = (avg,avg,avg) 
+    background = avg
+    VisBacColorEntryField.configure(state='enabled')  
+    VisBacColorEntryField.delete(0, 'end')
+    VisBacColorEntryField.insert(0,str(BGavg))
+    VisBacColorEntryField.configure(state='disabled')  
+  else:
+    temp = VisBacColorEntryField.get()  
+    startIndex = temp.find("(")
+    endIndex = temp.find(",")
+    background = int(temp[startIndex+1:endIndex])
+    #background = eval(VisBacColorEntryField.get())
+
+  h = cv2image.shape[0]
+  w = cv2image.shape[1]
+  # loop over the image
+  for y in range(0, h):
+    for x in range(0, w):
+      # change the pixel
+      cv2image[y, x] = background if x >= mX2 or x <= mX1 or y <= mY1 or y >= mY2 else cv2image[y, x]  
+
+  img = Image.fromarray(cv2image).resize((640,480))
+
+  
+
+  imgtk = ImageTk.PhotoImage(image=img) 
+  vid_lbl.imgtk = imgtk    
+  vid_lbl.configure(image=imgtk) 
+  filename = 'curImage.jpg'
+  cv2.imwrite(filename, cv2image)
+
+
+def mask_pic():
+  global selectedCam
+  global cap
+  global BGavg
+  global mX1
+  global mY1
+  global mX2
+  global mY2
+
+  if(cam_on == True):
+    ret, frame = cap.read()
+  else:
+    curVisStingSel = visoptions.get()
+    l = len(camList)
+    for i in range(l):
+      if (visoptions.get() == camList[i]):
+        selectedCam = i
+        #print(selectedCam) 
+    cap = cv2.VideoCapture(selectedCam) 
+    ret, frame = cap.read()
+  brightness = int(VisBrightSlide.get())
+  contrast = int(VisContrastSlide.get())
+  zoom = int(VisZoomSlide.get())
+  frame = np.int16(frame)
+  frame = frame * (contrast/127+1) - contrast + brightness
+  frame = np.clip(frame, 0, 255)
+  frame = np.uint8(frame) 
+  cv2image = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) 
+  #get the webcam size
+  height, width = cv2image.shape
+  #prepare the crop
+  centerX,centerY=int(height/2),int(width/2)
+  radiusX,radiusY= int(zoom*height/100),int(zoom*width/100)
+  minX,maxX=centerX-radiusX,centerX+radiusX
+  minY,maxY=centerY-radiusY,centerY+radiusY
+  cropped = cv2image[minX:maxX, minY:maxY]
+  cv2image = cv2.resize(cropped, (width, height))
+  #img = Image.fromarray(cv2image).resize((640,480))
+  #imgtk = ImageTk.PhotoImage(image=img) 
+  #vid_lbl.imgtk = imgtk    
+  #vid_lbl.configure(image=imgtk) 
+  filename = 'curImage.jpg'
+  cv2.imwrite(filename, cv2image)
+
+  
+
+
+
+def mask_crop(event, x, y, flags, param):
+    global x_start, y_start, x_end, y_end, cropping
+    global oriImage
+    global box_points
+    global button_down
+    global mX1
+    global mY1
+    global mX2
+    global mY2
+
+
+    cropDone = False
+    
+
+    if (button_down == False) and (event == cv2.EVENT_LBUTTONDOWN):
+        x_start, y_start, x_end, y_end = x, y, x, y
+        cropping = True
+        button_down = True
+        box_points = [(x, y)]
+        
+    # Mouse is Moving
+    elif (button_down == True) and (event == cv2.EVENT_MOUSEMOVE):
+        if cropping == True:
+            image_copy = oriImage.copy()
+            x_end, y_end = x, y
+            point = (x, y)
+            cv2.rectangle(image_copy, box_points[0], point, (0, 255, 0), 2)
+            cv2.imshow("image", image_copy)
+
+    # if the left mouse button was released
+    elif event == cv2.EVENT_LBUTTONUP:
+        button_down = False
+        box_points.append((x, y))
+        cv2.rectangle(oriImage, box_points[0], box_points[1], (0, 255, 0), 2)
+        cv2.imshow("image", oriImage)
+        # record the ending (x, y) coordinates
+        x_end, y_end = x, y
+        cropping = False # cropping is finished
+
+        mX1 = x_start+3
+        mY1 = y_start+3
+        mX2 = x_end-3
+        mY2 = y_end-3
+
+        autoBGVal = int(autoBG.get())
+        if(autoBGVal==1):
+          BG1 = oriImage[int(VisX1PixEntryField.get())][int(VisY1PixEntryField.get())]
+          BG2 = oriImage[int(VisX1PixEntryField.get())][int(VisY2PixEntryField.get())]
+          BG3 = oriImage[int(VisX2PixEntryField.get())][int(VisY2PixEntryField.get())]
+          avg = int(mean([BG1,BG2,BG3]))
+          BGavg = (avg,avg,avg) 
+          background = avg
+          VisBacColorEntryField.configure(state='enabled')  
+          VisBacColorEntryField.delete(0, 'end')
+          VisBacColorEntryField.insert(0,str(BGavg))
+          VisBacColorEntryField.configure(state='disabled')   
+        else:  
+          background = eval(VisBacColorEntryField.get())
+
+        h = oriImage.shape[0]
+        w = oriImage.shape[1]
+        # loop over the image
+        for y in range(0, h):
+            for x in range(0, w):
+                # change the pixel
+                oriImage[y, x] = background if x >= mX2 or x <= mX1 or y <= mY1 or y >= mY2 else oriImage[y, x]
+
+        img = Image.fromarray(oriImage)
+        imgtk = ImageTk.PhotoImage(image=img) 
+        vid_lbl.imgtk = imgtk    
+        vid_lbl.configure(image=imgtk) 
+        filename = 'curImage.jpg'
+        cv2.imwrite(filename, oriImage)
+        cv2.destroyAllWindows()
+
+
+
+def selectMask():
+  global oriImage
+  global button_down
+  button_down = False
+  x_start, y_start, x_end, y_end = 0, 0, 0, 0
+  mask_pic()
+
+  image = cv2.imread('curImage.jpg')
+  oriImage = image.copy()
+  
+  cv2.namedWindow("image")
+  cv2.setMouseCallback("image", mask_crop)
+  cv2.imshow("image", image)
+
+
+
+def mouse_crop(event, x, y, flags, param):
+    global x_start, y_start, x_end, y_end, cropping
+    global oriImage
+    global box_points
+    global button_down
+
+    cropDone = False
+    
+
+    if (button_down == False) and (event == cv2.EVENT_LBUTTONDOWN):
+        x_start, y_start, x_end, y_end = x, y, x, y
+        cropping = True
+        button_down = True
+        box_points = [(x, y)]
+        
+    # Mouse is Moving
+    elif (button_down == True) and (event == cv2.EVENT_MOUSEMOVE):
+        if cropping == True:
+            image_copy = oriImage.copy()
+            x_end, y_end = x, y
+            point = (x, y)
+            cv2.rectangle(image_copy, box_points[0], point, (0, 255, 0), 2)
+            cv2.imshow("image", image_copy)
+
+    # if the left mouse button was released
+    elif event == cv2.EVENT_LBUTTONUP:
+        button_down = False
+        box_points.append((x, y))
+        cv2.rectangle(oriImage, box_points[0], box_points[1], (0, 255, 0), 2)
+        cv2.imshow("image", oriImage)
+        # record the ending (x, y) coordinates
+        x_end, y_end = x, y
+        cropping = False # cropping is finished
+
+        refPoint = [(x_start+3, y_start+3), (x_end-3, y_end-3)]
+
+        if len(refPoint) == 2: #when two points were found
+            roi = oriImage[refPoint[0][1]:refPoint[1][1], refPoint[0][0]:refPoint[1][0]]
+            
+            cv2.imshow("Cropped", roi)
+            USER_INP = simpledialog.askstring(title="Teach Vision Object",
+                                  prompt="Save Object As:")
+            templateName = USER_INP+".jpg"                      
+            cv2.imwrite(templateName, roi)
+            cv2.destroyAllWindows()
+            updateVisOp()  
+
+
+
+def selectTemplate():
+  global oriImage
+  global button_down
+  button_down = False
+  x_start, y_start, x_end, y_end = 0, 0, 0, 0
+  image = cv2.imread('curImage.jpg')
+  oriImage = image.copy()
+  
+  cv2.namedWindow("image")
+  cv2.setMouseCallback("image", mouse_crop)
+  cv2.imshow("image", image)
 
 
 
 
- 
- 
+def snapFind():
+  global selectedTemplate
+  global BGavg
+  take_pic()
+  template = selectedTemplate.get()
+  min_score = float(VisScoreEntryField.get())*.01
+  autoBGVal = int(autoBG.get())
+  if(autoBGVal==1):
+    background = BGavg
+    VisBacColorEntryField.configure(state='enabled')  
+    VisBacColorEntryField.delete(0, 'end')
+    VisBacColorEntryField.insert(0,str(BGavg))
+    VisBacColorEntryField.configure(state='disabled')  
+  else:  
+    background = eval(VisBacColorEntryField.get())
+  visFind(template,min_score,background)
+
+
+
+
+def rotate_image(img,angle,background):
+    image_center = tuple(np.array(img.shape[1::-1]) / 2)
+    rot_mat = cv2.getRotationMatrix2D(image_center, -angle, 1.0)
+    result = cv2.warpAffine(img, rot_mat, img.shape[1::-1],borderMode=cv2.BORDER_CONSTANT, borderValue=background, flags=cv2.INTER_LINEAR)
+    return result
+
+def visFind(template,min_score,background):
+    global xMMpos
+    global yMMpos
+    global autoBG
+    #manEntryField.delete(0, 'end')
+    #manEntryField.insert(0,min_score)
+
+    if(background == "Auto"):
+      background = BGavg
+      VisBacColorEntryField.configure(state='enabled')  
+      VisBacColorEntryField.delete(0, 'end')
+      VisBacColorEntryField.insert(0,str(BGavg))
+      VisBacColorEntryField.configure(state='disabled')  
+      
+
+    green = (0,255,0)
+    red = (255,0,0)
+    blue = (0,0,255)
+    dkgreen = (0,128,0)
+    status = "fail"
+    highscore = 0
+    img1 = cv2.imread('curImage.jpg')  # target Image
+    img2 = cv2.imread(template)  # target Image
+    
+    #method = cv2.TM_CCOEFF_NORMED
+    #method = cv2.TM_CCORR_NORMED
+
+    img = img1.copy()
+
+    fullRotVal = int(fullRot.get())
+
+    for i in range (1):
+      if(i==0):
+        method = cv2.TM_CCOEFF_NORMED
+      else:
+        #method = cv2.TM_CCOEFF_NORMED
+        method = cv2.TM_CCORR_NORMED  
+
+      #USE 1/3 - EACH SIDE SEARCH
+      if (fullRotVal == 0): 
+        ## fist pass 1/3rds
+        curangle = 0
+        highangle = 0
+        highscore = 0
+        highmax_loc = 0
+        for x in range(3):
+          template = img2
+          template = rotate_image(img2,curangle,background)
+          w, h = template.shape[1::-1]
+          res = cv2.matchTemplate(img,template,method)
+          min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+          if(max_val>highscore):
+            highscore=max_val
+            highangle=curangle
+            highmax_loc=max_loc
+            highw,highh = w,h
+          curangle += 120
+        
+        #check each side and narrow in
+        while True:
+          curangle=curangle/2
+          if(curangle<.9):
+            break
+          nextangle1 = highangle+curangle
+          nextangle2 = highangle-curangle
+          template = img2
+          template = rotate_image(img2,nextangle1,background)
+          w, h = template.shape[1::-1]
+          res = cv2.matchTemplate(img,template,method)
+          min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+          if(max_val>highscore):
+            highscore=max_val
+            highangle=nextangle1
+            highmax_loc=max_loc
+            highw,highh = w,h
+          template = img2
+          template = rotate_image(img2,nextangle2,background)
+          w, h = template.shape[1::-1]
+          res = cv2.matchTemplate(img,template,method)
+          min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+          if(max_val>highscore):
+            highscore=max_val
+            highangle=nextangle2
+            highmax_loc=max_loc
+            highw,highh = w,h     
+    
+      #USE FULL 360 SEARCh
+      else:
+        for i in range (720):
+          template = rotate_image(img2,i,background)
+          w, h = template.shape[1::-1]
+
+          img = img1.copy()
+          # Apply template Matching
+          res = cv2.matchTemplate(img,template,method)
+          min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
+          highscore=max_val
+          highangle=i
+          highmax_loc=max_loc
+          highw,highh = w,h
+          if highscore >= min_score:
+            break
+      if(i==1):
+        highscore = highscore*.5    
+      if highscore >= min_score:
+        break         
+
+    if highscore >= min_score:
+      status = "pass"
+      #normalize angle to increment of +180 to -180
+      if(highangle>180):
+        highangle = -360 + highangle
+      #pick closest 180   
+      pick180Val = int(pick180.get())  
+      if (pick180Val == 1):
+        if (highangle>90):
+          highangle = -180 + highangle
+        elif (highangle<-90):
+          highangle = 180 + highangle
+      #try closest
+      pickClosestVal = int(pickClosest.get())
+      if (pickClosestVal == highangle and highangle>J6axisLimPos):
+        highangle=J6axisLimPos
+      elif (pickClosestVal == 0 and highangle>J6axisLimPos):    
+        status = "fail"
+      if (pickClosestVal == 1 and highangle<(J6axisLimNeg*-1)):
+        highangle=J6axisLimNeg*-1
+      elif (pickClosestVal == 0 and highangle<(J6axisLimNeg*-1)):  
+        status = "fail"
+
+      top_left = highmax_loc
+      bottom_right = (top_left[0] + highw, top_left[1] + highh)
+      #find center
+      center = (top_left[0] + highw/2, top_left[1] + highh/2)
+      xPos = int(center[1])
+      yPos = int(center[0])
+
+      imgxPos = int(center[0])
+      imgyPos = int(center[1])
+
+      #find line 1 end
+      line1x = int(imgxPos + 60*math.cos(math.radians(highangle-90)))
+      line1y = int(imgyPos + 60*math.sin(math.radians(highangle-90)))
+      cv2.line(img, (imgxPos,imgyPos), (line1x,line1y), green, 3) 
+
+      #find line 2 end
+      line2x = int(imgxPos + 60*math.cos(math.radians(highangle+90)))
+      line2y = int(imgyPos + 60*math.sin(math.radians(highangle+90)))
+      cv2.line(img, (imgxPos,imgyPos), (line2x,line2y), green, 3)  
+
+      #find line 3 end
+      line3x = int(imgxPos + 30*math.cos(math.radians(highangle)))
+      line3y = int(imgyPos + 30*math.sin(math.radians(highangle)))
+      cv2.line(img, (imgxPos,imgyPos), (line3x,line3y), green, 3)
+
+      #find line 4 end
+      line4x = int(imgxPos + 30*math.cos(math.radians(highangle+180)))
+      line4y = int(imgyPos + 30*math.sin(math.radians(highangle+180)))
+      cv2.line(img, (imgxPos,imgyPos), (line4x,line4y), green, 3) 
+
+      #find tip start
+      lineTx = int(imgxPos + 56*math.cos(math.radians(highangle-90)))
+      lineTy = int(imgyPos + 56*math.sin(math.radians(highangle-90)))
+      cv2.line(img, (lineTx,lineTy), (line1x,line1y), dkgreen, 2) 
+
+
+
+      cv2.circle(img, (imgxPos,imgyPos), 20, green, 1)
+      #cv2.rectangle(img,top_left, bottom_right, green, 2)
+      cv2.imwrite('temp.jpg', img)
+      img = Image.fromarray(img).resize((640,480))
+      imgtk = ImageTk.PhotoImage(image=img)        
+      vid_lbl.imgtk = imgtk    
+      vid_lbl.configure(image=imgtk)
+      VisRetScoreEntryField.delete(0, 'end')
+      VisRetScoreEntryField.insert(0,str(round((highscore*100),2))) 
+      VisRetAngleEntryField.delete(0, 'end')
+      VisRetAngleEntryField.insert(0,str(highangle)) 
+      VisRetXpixEntryField.delete(0, 'end')
+      VisRetXpixEntryField.insert(0,str(xPos))
+      VisRetYpixEntryField.delete(0, 'end')
+      VisRetYpixEntryField.insert(0,str(yPos))           
+      viscalc()
+      VisRetXrobEntryField .delete(0, 'end')
+      VisRetXrobEntryField .insert(0,str(round(xMMpos,2)))  
+      VisRetYrobEntryField .delete(0, 'end')
+      VisRetYrobEntryField .insert(0,str(round(yMMpos,2)))  
+
+      
+
+
+          #break
+        #if (score > highscore):
+          #highscore=score
+
+
+    if status == "fail":
+      cv2.rectangle(img,(5,5), (635,475), red, 5)
+      cv2.imwrite('temp.jpg', img)
+      img = Image.fromarray(img).resize((640,480))
+      imgtk = ImageTk.PhotoImage(image=img)        
+      vid_lbl.imgtk = imgtk    
+      vid_lbl.configure(image=imgtk)
+      VisRetScoreEntryField.delete(0, 'end')
+      VisRetScoreEntryField.insert(0,str(round((highscore*100),2)))
+      VisRetAngleEntryField.delete(0, 'end')
+      VisRetAngleEntryField.insert(0,"NA")
+      VisRetXpixEntryField.delete(0, 'end')
+      VisRetXpixEntryField.insert(0,"NA")
+      VisRetYpixEntryField.delete(0, 'end')
+      VisRetYpixEntryField.insert(0,"NA") 
+
+    return (status)    
+    
+
+
+
+
+
+# initial vis attempt using sift with flann pattern match
+#def visFind(template):
+#  take_pic()
+#  MIN_MATCH_COUNT = 10
+#  img1 = cv2.imread(template)  # query Image
+#  img2 = cv2.imread('curImage.jpg')  # target Image
+#  # Initiate SIFT detector
+#  sift = cv2.SIFT_create()
+#  # find the keypoints and descriptors with SIFT
+#  kp1, des1 = sift.detectAndCompute(img1,None)
+#  kp2, des2 = sift.detectAndCompute(img2,None)
+#  FLANN_INDEX_KDTREE = 1
+#  index_params = dict(algorithm = FLANN_INDEX_KDTREE, trees = 5)
+#  search_params = dict(checks = 50)
+#  flann = cv2.FlannBasedMatcher(index_params, search_params)
+#  matches = flann.knnMatch(des1,des2,k=2)
+#  # store all the good matches as per Lowe's ratio test.
+#  good = []
+#  for m,n in matches:
+#      if m.distance < 1.1*n.distance:
+#          good.append(m)
+
+#  if len(good)>MIN_MATCH_COUNT:
+#      src_pts = np.float32([ kp1[m.queryIdx].pt for m in good ]).reshape(-1,1,2)
+#      dst_pts = np.float32([ kp2[m.trainIdx].pt for m in good ]).reshape(-1,1,2)
+#      M, mask = cv2.findHomography(src_pts, dst_pts, cv2.RANSAC,5.0)
+#      matchesMask = mask.ravel().tolist()
+#      h,w,c = img1.shape
+#      pts = np.float32([ [0,0],[0,h-1],[w-1,h-1],[w-1,0] ]).reshape(-1,1,2)
+#      dst = cv2.perspectiveTransform(pts,M)
+#      #img2 = cv.polylines(img2,[np.int32(dst)],True,255,3, cv.LINE_AA)
+#
+#      pts = np.float32([ [0,0],[0,h-1],[w-1,h-1],[w-1,0] ]).reshape(-1,1,2)
+#      dst = cv2.perspectiveTransform(pts,M)
+#
+#      crosspts = np.float32([ [w/2,0],[w/2,h-1],[0,h/2],[w-1,h/2] ]).reshape(-1,1,2)
+#      crossCoord = cv2.perspectiveTransform(crosspts,M)
+#
+#      cenPt = np.float32([w/2,h/2]).reshape(-1,1,2)
+#      cenCoord = cv2.perspectiveTransform(cenPt,M)
+#
+#      cenResult = cenCoord[0].reshape(1,-1).flatten().tolist()
+#      theta = - math.atan2(M[0,1], M[0,0]) * 180 / math.pi
+#
+#      xPos = cenResult[0]
+#      yPos = cenResult[1]
+#
+#      cross1Result = crossCoord[0].reshape(2,-1).flatten().tolist()
+#      cross2Result = crossCoord[1].reshape(2,-1).flatten().tolist()
+#      cross3Result = crossCoord[2].reshape(2,-1).flatten().tolist()
+#      cross4Result = crossCoord[3].reshape(2,-1).flatten().tolist()
+#
+#      x1Pos = int(cross1Result[0])
+#      y1Pos = int(cross1Result[1])
+#      x2Pos = int(cross2Result[0])
+#      y2Pos = int(cross2Result[1])
+#      x3Pos = int(cross3Result[0])
+#      y3Pos = int(cross3Result[1])
+#      x4Pos = int(cross4Result[0])
+#      y4Pos = int(cross4Result[1])
+#
+#
+#      print(xPos)
+#      print(yPos)
+#      print(theta)
+#
+#
+#      #draw bounding box
+#      #img2 = cv2.polylines(img2, [np.int32(dst)], True, (0,255,0),3, cv2.LINE_AA)
+#
+#      #draw circle
+#      img2 = cv2.circle(img2, (int(xPos),int(yPos)), radius=30, color=(0, 255, 0), thickness=3)
+#
+#      #draw line 1
+#      cv2.line(img2, (x1Pos,y1Pos), (x2Pos,y2Pos), (0,255,0), 3) 
+#      #draw line 2
+#      cv2.line(img2, (x3Pos,y3Pos), (x4Pos,y4Pos), (0,255,0), 3)
+#
+#      #save image
+#      cv2.imwrite('curImage.jpg', img2)
+#      img = Image.fromarray(img2)
+#      imgtk = ImageTk.PhotoImage(image=img)        
+#      vid_lbl.imgtk = imgtk    
+#      vid_lbl.configure(image=imgtk) 
+#
+#
+#
+#
+#  else:
+#      print( "Not enough matches are found - {}/{}".format(len(good), MIN_MATCH_COUNT) )
+#      matchesMask = None 
+
+
+
+
+
+def updateVisOp():
+  global selectedTemplate
+  selectedTemplate = StringVar()
+  folder = os.path.dirname(os.path.realpath(__file__))
+  filelist = [fname for fname in os.listdir(folder) if fname.endswith('.jpg')]
+  Visoptmenu = ttk.Combobox(tab5, textvariable=selectedTemplate, values=filelist, state='readonly')
+  Visoptmenu.place(x=390, y=52)
+  Visoptmenu.bind("<<ComboboxSelected>>", VisOpUpdate)
+
+def VisOpUpdate(foo):
+  global selectedTemplate
+  file = selectedTemplate.get()
+  print(file)
+  img = cv2.imread(file, cv2.IMREAD_COLOR)
+  img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  
+
+
+  TARGET_PIXEL_AREA = 22500
+
+  ratio = float(img.shape[1]) / float(img.shape[0])
+  new_h = int(math.sqrt(TARGET_PIXEL_AREA / ratio) + 0.5)
+  new_w = int((new_h * ratio) + 0.5)
+
+  img = cv2.resize(img, (new_w,new_h))
+
+
+
+  img = Image.fromarray(img)
+  imgtk = ImageTk.PhotoImage(image=img)        
+  template_lbl.imgtk = imgtk    
+  template_lbl.configure(image=imgtk) 
+
+
+def zeroBrCn():
+  global mX1
+  global mY1
+  global mX2
+  global mY2
+  mX1 = 0
+  mY1 = 0
+  mX2 = 640
+  mY2 = 480
+  VisBrightSlide.set(0)
+  VisContrastSlide.set(0)
+  #VisZoomSlide.set(50)
+  take_pic()
+
+def VisUpdateBriCon(foo):
+  take_pic()  
+
+  
+  
+       
+def motion(event):
+    y = event.x
+    x = event.y
+
+    if (x<=240 and y<=320):
+      VisX1PixEntryField.delete(0, 'end')
+      VisX1PixEntryField.insert(0,x)
+      VisY1PixEntryField.delete(0, 'end')
+      VisY1PixEntryField.insert(0,y)
+    elif (x>240):
+      VisX2PixEntryField.delete(0, 'end')
+      VisX2PixEntryField.insert(0,x)
+    elif (y>320):   
+      VisY2PixEntryField.delete(0, 'end')
+      VisY2PixEntryField.insert(0,y)
+
+    #print(str(x) +","+str(y))
+    
+
+def checkAutoBG():
+  autoBGVal = int(autoBG.get())
+  if(autoBGVal==1):
+    VisBacColorEntryField.configure(state='disabled')
+  else:
+    VisBacColorEntryField.configure(state='enabled')  
+
+
+
+
+
   
 ####################################################################################################################################################
 ####################################################################################################################################################
@@ -5448,6 +6407,15 @@ RxcurEntryField.place(x=1110, y=195)
 ###BUTTONS################################################################
 ##########################################################################
 
+
+def posRegFieldVisible(self):
+  curCmdtype = options.get()
+  if (curCmdtype=="Move PR" or curCmdtype=="OFF PR " or curCmdtype=="Teach PR"):
+    SavePosEntryField.place(x=780, y=183)
+  else:
+    SavePosEntryField.place_forget()
+
+
 manInsBut = Button(tab1, text="  Insert  ",  command = manInsItem)
 manInsBut.place(x=98, y=725)
 
@@ -5466,8 +6434,9 @@ speedMenu.place(x=412, y=76)
 #single buttons
 
 options=StringVar(tab1)
-menu=OptionMenu(tab1, options, "Move J", "Move J", "OFF J", "Move L", "Move R", "Move A Mid", "Move A End", "Move C Center", "Move C Start", "Move C Plane", "Start Spline", "End Spline", "Move PR", "OFF PR ", "Teach PR", command=posRegFieldVisible)
+menu=OptionMenu(tab1, options, "Move J", "Move J", "OFF J", "Move L", "Move R", "Move A Mid", "Move A End", "Move C Center", "Move C Start", "Move C Plane", "Start Spline", "End Spline", "Move PR", "OFF PR ", "Teach PR", "Move Vis", command=posRegFieldVisible)
 menu.grid(row=2,column=2)
+menu.config(width=18)
 menu.place(x=700, y=180)
 
 SavePosEntryField = Entry(tab1,width=5)
@@ -5486,55 +6455,60 @@ deleteBut.place(x=700, y=300)
 CalibrateBut = Button(tab1,  text="Auto Calibrate CMD", width=22,   command = insCalibrate)
 CalibrateBut.place(x=700, y=340)
 
-getVisBut = Button(tab1,  text="Get Vision",  width=22, command = getvision)
-getVisBut.place(x=700, y=380)
+camOnBut = Button(tab1,  text="Camera On",  width=22, command = cameraOn)
+camOnBut.place(x=700, y=380)
+
+camOffBut = Button(tab1,  text="Camera Off",  width=22, command = cameraOff)
+camOffBut.place(x=700, y=420)
+
+
 
 #buttons with 1 entry
 
 waitTimeBut = Button(tab1, text="Wait Time (seconds)",  width=22,  command = waitTime)
-waitTimeBut.place(x=700, y=420)
+waitTimeBut.place(x=700, y=460)
 
 waitInputOnBut = Button(tab1, text="Wait Input ON",  width=22,  command = waitInputOn)
-waitInputOnBut.place(x=700, y=460)
+waitInputOnBut.place(x=700, y=500)
 
 waitInputOffBut = Button(tab1,  text="Wait Input OFF",  width=22,  command = waitInputOff)
-waitInputOffBut.place(x=700, y=500)
+waitInputOffBut.place(x=700, y=540)
 
 setOutputOnBut = Button(tab1,  text="Set Output On",  width=22,  command = setOutputOn)
-setOutputOnBut.place(x=700, y=540)
+setOutputOnBut.place(x=700, y=580)
 
 setOutputOffBut = Button(tab1,  text="Set Output OFF",  width=22,   command = setOutputOff)
-setOutputOffBut.place(x=700, y=580)
+setOutputOffBut.place(x=700, y=620)
 
 tabNumBut = Button(tab1,  text="Create Tab",  width=22, command = tabNumber)
-tabNumBut.place(x=700, y=620)
+tabNumBut.place(x=700, y=660)
 
 jumpTabBut = Button(tab1,  text="Jump to Tab",  width=22, command = jumpTab)
-jumpTabBut.place(x=700, y=660)
+jumpTabBut.place(x=700, y=700)
 
 
 
 
 waitTimeEntryField = Entry(tab1,width=5)
-waitTimeEntryField.place(x=855, y=425)
+waitTimeEntryField.place(x=855, y=465)
 
 waitInputEntryField = Entry(tab1,width=5)
-waitInputEntryField.place(x=855, y=465)
+waitInputEntryField.place(x=855, y=505)
 
 waitInputOffEntryField = Entry(tab1,width=5)
-waitInputOffEntryField.place(x=855, y=505)
+waitInputOffEntryField.place(x=855, y=545)
 
 outputOnEntryField = Entry(tab1,width=5)
-outputOnEntryField.place(x=855, y=545)
+outputOnEntryField.place(x=855, y=585)
 
 outputOffEntryField = Entry(tab1,width=5)
-outputOffEntryField.place(x=855, y=585)
+outputOffEntryField.place(x=855, y=625)
 
 tabNumEntryField = Entry(tab1,width=5)
-tabNumEntryField.place(x=855, y=625)
+tabNumEntryField.place(x=855, y=665)
 
 jumpTabEntryField = Entry(tab1,width=5)
-jumpTabEntryField.place(x=855, y=665)
+jumpTabEntryField.place(x=855, y=705)
 
 
 
@@ -5566,6 +6540,9 @@ callBut.place(x=950, y=600)
 
 returnBut = Button(tab1,  text="Return",  width=22,   command = insertReturn)
 returnBut.place(x=950, y=640)
+
+visFindBut = Button(tab1,  text="Vision Find",  width=22,   command = insertvisFind)
+visFindBut.place(x=950, y=680)
 
 ##
 IfOnjumpInputTabEntryField = Entry(tab1,width=5)
@@ -5613,6 +6590,14 @@ storPosValEntryField.place(x=1187, y=563)
 changeProgEntryField = Entry(tab1,width=22)
 changeProgEntryField.place(x=1107, y=603)
 
+visPassEntryField = Entry(tab1,width=5)
+visPassEntryField.place(x=1107, y=683)
+
+visFailEntryField = Entry(tab1,width=5)
+visFailEntryField.place(x=1147, y=683)
+
+
+
 manEntLab = Label(tab1, font=("Arial", 6), text = "Manual Program Entry")
 manEntLab.place(x=10, y=685)
 
@@ -5631,8 +6616,11 @@ ifregTabJmpLab.place(x=1107, y=509)
 servoLab = Label(tab1,font=("Arial", 6), text = "Number      Position")
 servoLab.place(x=1107, y=430)
 
-storPosEqLab = Label(tab1,font=("Arial", 6), text = " StorPos      Element       (++/--)")
+storPosEqLab = Label(tab1,font=("Arial", 6), text = " Pos Reg      Element       (++/--)")
 storPosEqLab.place(x=1107, y=549)
+
+visPassLab = Label(tab1,font=("Arial", 6), text = "Pass Tab     Fail Tab")
+visPassLab.place(x=1107, y=670)
 
 
 
@@ -6542,7 +7530,7 @@ R16Lab = Label(tab4, text = "R16")
 R16Lab.place(x=70, y=480)
 
 
-SP1Lab = Label(tab4, text = "PR1 (vision)")
+SP1Lab = Label(tab4, text = "PR1")
 SP1Lab.place(x=640, y=30)
 
 SP2Lab = Label(tab4, text = "PR2")
@@ -6993,107 +7981,323 @@ SP_16_E6_EntryField.place(x=600, y=480)
 ### 5 LABELS#################################################################
 #############################################################################
 
+VisBackdropImg = ImageTk.PhotoImage(Image.open('VisBackdrop.png'))
+VisBackdromLbl = Label(tab5, image = VisBackdropImg)
+VisBackdromLbl.place(x=15, y=215)
+
+
+
+#cap= cv2.VideoCapture(0)
+video_frame = Frame(tab5,width=640,height=480)
+video_frame.place(x=50, y=250)
+
+
+vid_lbl = Label(video_frame)
+vid_lbl.place(x=0, y=0)
+
+vid_lbl.bind('<Button-1>', motion)
+
+
+LiveLab = Label(tab5, text = "LIVE VIDEO FEED")
+LiveLab.place(x=750, y=390)
+liveCanvas = Canvas(tab5, width=490, height=330)
+liveCanvas.place(x=750, y=410)
+live_frame = Frame(tab5,width=480,height=320)
+live_frame.place(x=757, y=417)
+live_lbl = Label(live_frame)
+live_lbl.place(x=0, y=0)
+
+
+
+template_frame = Frame(tab5,width=150,height=150)
+template_frame.place(x=575, y=50)
+
+template_lbl = Label(template_frame)
+template_lbl.place(x=0, y=0)
+
+FoundValuesLab = Label(tab5, text = "FOUND VALUES")
+FoundValuesLab.place(x=750, y=30)
+
+CalValuesLab = Label(tab5, text = "CALIBRATION VALUES")
+CalValuesLab.place(x=900, y=30)
+
+
+
 VisFileLocLab = Label(tab5, text = "Vision File Location:")
-VisFileLocLab.place(x=10, y=12)
+#VisFileLocLab.place(x=10, y=12)
 
 VisCalPixLab = Label(tab5, text = "Calibration Pixels:")
-VisCalPixLab.place(x=10, y=75)
+#VisCalPixLab.place(x=10, y=75)
 
 VisCalmmLab = Label(tab5, text = "Calibration Robot MM:")
-VisCalmmLab.place(x=10, y=105)
+#VisCalmmLab.place(x=10, y=105)
 
 VisCalOxLab = Label(tab5, text = "Orig: X")
-VisCalOxLab.place(x=150, y=42)
+#VisCalOxLab.place(x=150, y=42)
 
 VisCalOyLab = Label(tab5, text = "Orig: Y")
-VisCalOyLab.place(x=210, y=42)
+#VisCalOyLab.place(x=210, y=42)
 
 VisCalXLab = Label(tab5, text = "End: X")
-VisCalXLab.place(x=270, y=42)
+#VisCalXLab.place(x=270, y=42)
 
 VisCalYLab = Label(tab5, text = "End: Y")
-VisCalYLab.place(x=330, y=42)
+#VisCalYLab.place(x=330, y=42)
 
 
 
 VisInTypeLab = Label(tab5, text = "Choose Vision Format")
-VisInTypeLab.place(x=500, y=38)
+#VisInTypeLab.place(x=500, y=38)
 
 VisXfoundLab = Label(tab5, text = "X found position (mm)")
-VisXfoundLab.place(x=540, y=100)
+#VisXfoundLab.place(x=540, y=100)
 
 VisYfoundLab = Label(tab5, text = "Y found position (mm)")
-VisYfoundLab.place(x=540, y=130)
+#VisYfoundLab.place(x=540, y=130)
 
 VisRZfoundLab = Label(tab5, text = "R found position (ang)")
-VisRZfoundLab.place(x=540, y=160)
+#VisRZfoundLab.place(x=540, y=160)
 
 VisXpixfoundLab = Label(tab5, text = "X pixes returned from camera")
-VisXpixfoundLab.place(x=760, y=100)
+#VisXpixfoundLab.place(x=760, y=100)
 
 VisYpixfoundLab = Label(tab5, text = "Y pixes returned from camera")
-VisYpixfoundLab.place(x=760, y=130)
+#VisYpixfoundLab.place(x=760, y=130)
 
 ### 5 BUTTONS################################################################
 #############################################################################
 
+graph = FilterGraph()
+try:
+  camList = graph.get_input_devices()
+except:
+  camList = ["Select a Camera"]
 visoptions=StringVar(tab5)
-menu=OptionMenu(tab5, visoptions, "Openvision", "Openvision", "Roborealm 1.7.5", "x,y,r")
-menu.grid(row=2,column=2)
-menu.place(x=500, y=60)
+visoptions.set("Select a Camera")
+vismenu=OptionMenu(tab5, visoptions, camList[0], *camList)
+vismenu.config(width=20)
+vismenu.place(x=10, y=10)
 
 
-testvisBut = Button(tab5,  text="test",  width=15, command = testvis)
-testvisBut.place(x=500, y=190)
+ 
+
+
+
+StartCamBut = Button(tab5,  text="Start Camera",  width=15, command = start_vid)
+StartCamBut.place(x=200, y=10)
+
+StopCamBut = Button(tab5,  text="Stop Camera",  width=15, command = stop_vid)
+StopCamBut.place(x=315, y=10)
+
+CapImgBut = Button(tab5,  text="Snap Image",  width=15, command = take_pic)
+CapImgBut.place(x=10, y=50)
+
+TeachImgBut = Button(tab5,  text="Teach Object",  width=15, command = selectTemplate)
+TeachImgBut.place(x=140, y=50)
+
+FindVisBut = Button(tab5,  text="Snap & Find",  width=15, command = snapFind)
+FindVisBut.place(x=270, y=50)
+
+
+ZeroBrCnBut = Button(tab5, text="Zero",  width=5, command = zeroBrCn)
+ZeroBrCnBut.place(x=10, y=110)
+
+maskBut = Button(tab5, text="Mask",  width=5, command = selectMask)
+maskBut.place(x=10, y=150)
+
+
+
+
+
+
+
+VisZoomSlide = Scale(tab5, from_=50, to=1,  length=250, orient=HORIZONTAL)
+VisZoomSlide.bind("<ButtonRelease-1>", VisUpdateBriCon)
+VisZoomSlide.place(x=75, y=95)
+VisZoomSlide.set(50)
+
+VisZoomLab = Label(tab5, text = "Zoom")
+VisZoomLab.place(x=75, y=115)
+
+VisBrightSlide = Scale(tab5, from_=-127, to=127,  length=250, orient=HORIZONTAL)
+VisBrightSlide.bind("<ButtonRelease-1>", VisUpdateBriCon)
+VisBrightSlide.place(x=75, y=130)
+
+VisBrightLab = Label(tab5, text = "Brightness")
+VisBrightLab.place(x=75, y=150)
+
+VisContrastSlide = Scale(tab5, from_=-127, to=127,  length=250, orient=HORIZONTAL)
+VisContrastSlide.bind("<ButtonRelease-1>", VisUpdateBriCon)
+VisContrastSlide.place(x=75, y=165)
+
+VisContrastLab = Label(tab5, text = "Contrast")
+VisContrastLab.place(x=75, y=185)
+
+
+fullRotCbut = Checkbutton(tab5, text="Full Rotation Search",variable = fullRot)
+fullRotCbut.place(x=900, y=255)
+
+pick180Cbut = Checkbutton(tab5, text="Pick Closest 180°",variable = pick180)
+pick180Cbut.place(x=900, y=275)
+
+pickClosestCbut = Checkbutton(tab5, text="Try Closest When Out of Range",variable = pickClosest)
+pickClosestCbut.place(x=900, y=295)
+
+
+
+
 
 saveCalBut = Button(tab5,  text="SAVE VISION DATA",  width=26, command = SaveAndApplyCalibration)
-saveCalBut.place(x=1150, y=630)
+saveCalBut.place(x=915, y=340)
+
+
+
 
 
 #### 5 ENTRY FIELDS##########################################################
 #############################################################################
 
+
+
+VisBacColorEntryField = Entry(tab5,width=15)
+VisBacColorEntryField.place(x=390, y=100)
+VisBacColorLab = Label(tab5, text = "Background Color")
+VisBacColorLab.place(x=390, y=120)
+
+bgAutoCbut = Checkbutton(tab5, command=checkAutoBG, text="Auto",variable = autoBG)
+bgAutoCbut.place(x=490, y=101)
+
+VisScoreEntryField = Entry(tab5,width=15)
+VisScoreEntryField.place(x=390, y=150)
+VisScoreLab = Label(tab5, text = "Score Threshold")
+VisScoreLab.place(x=390, y=170)
+
+
+
+
+VisRetScoreEntryField = Entry(tab5,width=15)
+VisRetScoreEntryField.place(x=750, y=55)
+VisRetScoreLab = Label(tab5, text = "Scored Value")
+VisRetScoreLab.place(x=750, y=75)
+
+VisRetAngleEntryField = Entry(tab5,width=15)
+VisRetAngleEntryField.place(x=750, y=105)
+VisRetAngleLab = Label(tab5, text = "Found Angle")
+VisRetAngleLab.place(x=750, y=125)
+
+VisRetXpixEntryField = Entry(tab5,width=15)
+VisRetXpixEntryField.place(x=750, y=155)
+VisRetXpixLab = Label(tab5, text = "Pixel X Position")
+VisRetXpixLab.place(x=750, y=175)
+
+VisRetYpixEntryField = Entry(tab5,width=15)
+VisRetYpixEntryField.place(x=750, y=205)
+VisRetYpixLab = Label(tab5, text = "Pixel Y Position")
+VisRetYpixLab.place(x=750, y=225)
+
+VisRetXrobEntryField = Entry(tab5,width=15)
+VisRetXrobEntryField.place(x=750, y=255)
+VisRetXrobLab = Label(tab5, text = "Robot X Position")
+VisRetXrobLab.place(x=750, y=275)
+
+VisRetYrobEntryField = Entry(tab5,width=15)
+VisRetYrobEntryField.place(x=750, y=305)
+VisRetYrobLab = Label(tab5, text = "Robot Y Position")
+VisRetYrobLab.place(x=750, y=325)
+
+
+
+
+
+
+
+VisX1PixEntryField = Entry(tab5,width=15)
+VisX1PixEntryField.place(x=900, y=55)
+VisX1PixLab = Label(tab5, text = "X1 Pixel Pos")
+VisX1PixLab.place(x=900, y=75)
+
+VisY1PixEntryField = Entry(tab5,width=15)
+VisY1PixEntryField.place(x=900, y=105)
+VisY1PixLab = Label(tab5, text = "Y1 Pixel Pos")
+VisY1PixLab.place(x=900, y=125)
+
+VisX2PixEntryField = Entry(tab5,width=15)
+VisX2PixEntryField.place(x=900, y=155)
+VisX2PixLab = Label(tab5, text = "X2 Pixel Pos")
+VisX2PixLab.place(x=900, y=175)
+
+VisY2PixEntryField = Entry(tab5,width=15)
+VisY2PixEntryField.place(x=900, y=205)
+VisY2PixLab = Label(tab5, text = "Y2 Pixel Pos")
+VisY2PixLab.place(x=900, y=225)
+
+
+VisX1RobEntryField = Entry(tab5,width=15)
+VisX1RobEntryField.place(x=1010, y=55)
+VisX1RobLab = Label(tab5, text = "X1 Robot Pos")
+VisX1RobLab.place(x=1010, y=75)
+
+VisY1RobEntryField = Entry(tab5,width=15)
+VisY1RobEntryField.place(x=1010, y=105)
+VisY1RobLab = Label(tab5, text = "Y1 Robot Pos")
+VisY1RobLab.place(x=1010, y=125)
+
+VisX2RobEntryField = Entry(tab5,width=15)
+VisX2RobEntryField.place(x=1010, y=155)
+VisX2RobLab = Label(tab5, text = "X2 Robot Pos")
+VisX2RobLab.place(x=1010, y=175)
+
+VisY2RobEntryField = Entry(tab5,width=15)
+VisY2RobEntryField.place(x=1010, y=205)
+VisY2RobLab = Label(tab5, text = "Y2 Robot Pos")
+VisY2RobLab.place(x=1010, y=225)
+
+
+
+
+
+
 VisFileLocEntryField = Entry(tab5,width=70)
-VisFileLocEntryField.place(x=125, y=12)
+#VisFileLocEntryField.place(x=125, y=12)
 
 VisPicOxPEntryField = Entry(tab5,width=5)
-VisPicOxPEntryField.place(x=155, y=75)
+#VisPicOxPEntryField.place(x=155, y=75)
 
 VisPicOxMEntryField = Entry(tab5,width=5)
-VisPicOxMEntryField.place(x=155, y=105)
+#VisPicOxMEntryField.place(x=155, y=105)
 
 VisPicOyPEntryField = Entry(tab5,width=5)
-VisPicOyPEntryField.place(x=215, y=75)
+#VisPicOyPEntryField.place(x=215, y=75)
 
 VisPicOyMEntryField = Entry(tab5,width=5)
-VisPicOyMEntryField.place(x=215, y=105)
+#VisPicOyMEntryField.place(x=215, y=105)
 
 VisPicXPEntryField = Entry(tab5,width=5)
-VisPicXPEntryField.place(x=275, y=75)
+#VisPicXPEntryField.place(x=275, y=75)
 
 VisPicXMEntryField = Entry(tab5,width=5)
-VisPicXMEntryField.place(x=275, y=105)
+#VisPicXMEntryField.place(x=275, y=105)
 
 VisPicYPEntryField = Entry(tab5,width=5)
-VisPicYPEntryField.place(x=335, y=75)
+#VisPicYPEntryField.place(x=335, y=75)
 
 VisPicYMEntryField = Entry(tab5,width=5)
-VisPicYMEntryField.place(x=335, y=105)
+#VisPicYMEntryField.place(x=335, y=105)
 
 VisXfindEntryField = Entry(tab5,width=5)
-VisXfindEntryField.place(x=500, y=100)
+#VisXfindEntryField.place(x=500, y=100)
 
 VisYfindEntryField = Entry(tab5,width=5)
-VisYfindEntryField.place(x=500, y=130)
+#VisYfindEntryField.place(x=500, y=130)
 
 VisRZfindEntryField = Entry(tab5,width=5)
-VisRZfindEntryField.place(x=500, y=160)
+#VisRZfindEntryField.place(x=500, y=160)
 
 VisXpixfindEntryField = Entry(tab5,width=5)
-VisXpixfindEntryField.place(x=720, y=100)
+#VisXpixfindEntryField.place(x=720, y=100)
 
 VisYpixfindEntryField = Entry(tab5,width=5)
-VisYpixfindEntryField.place(x=720, y=130)
+#VisYpixfindEntryField.place(x=720, y=130)
 
 
 ####################################################################################################################################################
@@ -7204,6 +8408,10 @@ except:
   pickle.dump(Cal,open("ARbot.cal","wb"))
 for item in Cal:
   calibration.insert(END,item)
+global mX1
+global mY1
+global mX2
+global mY2 
 J1AngCur   =calibration.get("0")
 J2AngCur   =calibration.get("1")
 J3AngCur   =calibration.get("2")
@@ -7275,6 +8483,28 @@ J3CalStatVal2= calibration.get("67")
 J4CalStatVal2= calibration.get("68")
 J5CalStatVal2= calibration.get("69")
 J6CalStatVal2= calibration.get("70")
+VisBrightVal= calibration.get("71")
+VisContVal  = calibration.get("72")
+VisBacColor = calibration.get("73")
+VisScore    = calibration.get("74")
+VisX1Val    = calibration.get("75")
+VisY1Val    = calibration.get("76")
+VisX2Val    = calibration.get("77")
+VisY2Val    = calibration.get("78")
+VisRobX1Val = calibration.get("79")
+VisRobY1Val = calibration.get("80")
+VisRobX2Val = calibration.get("81")
+VisRobY2Val = calibration.get("82")
+zoom        = calibration.get("83")
+pick180Val  = calibration.get("84")
+pickClosestVal=calibration.get("85")
+curCam      = calibration.get("86")
+fullRotVal  = calibration.get("87")
+autoBGVal   = calibration.get("88")
+mX1val      = calibration.get("89")
+mY1val      = calibration.get("90")
+mX2val      = calibration.get("91")
+mY2val      = calibration.get("92")
 
 
 ####
@@ -7419,7 +8649,7 @@ TRcurAngEntryField.insert(0,str(TrackcurPos))
 TrackLengthEntryField.insert(0,str(TrackLength))
 TrackStepLimEntryField.insert(0,str(TrackStepLim))
 VisFileLocEntryField.insert(0,str(VisFileLoc))
-visoptions.set(VisProg)
+#visoptions.set(VisProg)
 VisPicOxPEntryField.insert(0,str(VisOrigXpix))
 VisPicOxMEntryField.insert(0,str(VisOrigXmm))
 VisPicOyPEntryField.insert(0,str(VisOrigYpix))
@@ -7477,6 +8707,34 @@ if (J6CalStatVal2 == 1):
 axis7lengthEntryField.insert(0,str(TRlength))
 axis7rotEntryField.insert(0,str(TRrotation))
 axis7stepsEntryField.insert(0,str(TRsteps))
+VisBrightSlide.set(VisBrightVal)
+VisContrastSlide.set(VisContVal)
+VisBacColorEntryField.insert(0,str(VisBacColor))
+VisScoreEntryField.insert(0,str(VisScore))
+VisX1PixEntryField.insert(0,str(VisX1Val))
+VisY1PixEntryField.insert(0,str(VisY1Val))
+VisX2PixEntryField.insert(0,str(VisX2Val))
+VisY2PixEntryField.insert(0,str(VisY2Val))
+VisX1RobEntryField.insert(0,str(VisRobX1Val))
+VisY1RobEntryField.insert(0,str(VisRobY1Val))
+VisX2RobEntryField.insert(0,str(VisRobX2Val))
+VisY2RobEntryField.insert(0,str(VisRobY2Val))
+VisZoomSlide.set(zoom)
+if (pickClosestVal == 1):
+  pickClosest.set(True)
+if (pick180Val == 1):
+  pick180.set(True)  
+visoptions.set(curCam)
+if (fullRotVal == 1):
+  fullRot.set(True)
+if (autoBGVal == 1):
+  autoBG.set(True)  
+mX1 = mX1val
+mY1 = mY1val
+mX2 = mX2val
+mY2 = mY2val
+
+
 
 
 
@@ -7485,6 +8743,8 @@ setCom2()
 
 
 loadProg()
+updateVisOp()
+checkAutoBG()
 
 msg = "ANNIN ROBOTICS SOFTWARE AND DESIGNS ARE FREE:\n\
 \n\
