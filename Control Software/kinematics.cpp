@@ -333,6 +333,44 @@ bool robot_joints_valid(const T joints[ROBOT_nDOFs]) {
     return true;
 }
 
+/// Returns the pose given the position (mm) and Euler angles (rad) as an array [x,y,z,rx,ry,rz].
+/// The result is the same as calling: H = transl(x,y,z)*rotx(rx)*roty(ry)*rotz(rz)
+template <typename T>
+void xyzwpr_2_pose(const T xyzwpr[6], Matrix4x4 pose)
+{
+    T srx;
+    T crx;
+    T sry;
+    T cry;
+    T srz;
+    T crz;
+    T H_tmp;
+    srx = std::sin(xyzwpr[3]);
+    crx = std::cos(xyzwpr[3]);
+    sry = std::sin(xyzwpr[4]);
+    cry = std::cos(xyzwpr[4]);
+    srz = std::sin(xyzwpr[5]);
+    crz = std::cos(xyzwpr[5]);
+    pose[0] = cry * crz;
+    pose[4] = -cry * srz;
+    pose[8] = sry;
+    pose[12] = xyzwpr[0];
+    H_tmp = crz * srx;
+    pose[1] = crx * srz + H_tmp * sry;
+    crz *= crx;
+    pose[5] = crz - srx * sry * srz;
+    pose[9] = -cry * srx;
+    pose[13] = xyzwpr[1];
+    pose[2] = srx * srz - crz * sry;
+    pose[6] = H_tmp + crx * sry * srz;
+    pose[10] = crx * cry;
+    pose[14] = xyzwpr[2];
+    pose[3] = 0.0;
+    pose[7] = 0.0;
+    pose[11] = 0.0;
+    pose[15] = 1.0;
+}
+
 /// Calculate the robot forward kinematics (ignores the customized base frame and tool frame)
 /// The calculation is from the robot base frame to the tool flange, ignoring the TCP
 template <typename T>
@@ -388,18 +426,89 @@ int inverse_kinematics_robot(const Matrix4x4 target, T joints[ROBOT_nDOFs], cons
     return 1;
 }
 
+
+/// Calcualte the pose given XYZ and UVW rotation vector
+template <typename T>
+void xyzuvw_2_pose(const T xyzuvw[6], Matrix4x4 pose)
+{
+    T s;
+    T angle;
+    T axisunit[3];
+    T ex;
+    T c;
+    T pose_tmp;
+    T b_pose_tmp;
+    s = std::sqrt((xyzuvw[3] * xyzuvw[3] + xyzuvw[4] * xyzuvw[4]) + xyzuvw[5] *
+        xyzuvw[5]);
+    angle = s * 180.0 / 3.1415926535897931;
+    if (std::abs(angle) < 1.0E-6) {
+        memset(&pose[0], 0, sizeof(T) << 4);
+        pose[0] = 1.0;
+        pose[5] = 1.0;
+        pose[10] = 1.0;
+        pose[15] = 1.0;
+    }
+    else {
+        axisunit[1] = std::abs(xyzuvw[4]);
+        axisunit[2] = std::abs(xyzuvw[5]);
+        ex = std::abs(xyzuvw[3]);
+        if (std::abs(xyzuvw[3]) < axisunit[1]) {
+            ex = axisunit[1];
+        }
+
+        if (ex < axisunit[2]) {
+            ex = axisunit[2];
+        }
+
+        if (ex < 1.0E-6) {
+            memset(&pose[0], 0, sizeof(T) << 4);
+            pose[0] = 1.0;
+            pose[5] = 1.0;
+            pose[10] = 1.0;
+            pose[15] = 1.0;
+        }
+        else {
+            axisunit[0] = xyzuvw[3] / s;
+            axisunit[1] = xyzuvw[4] / s;
+            axisunit[2] = xyzuvw[5] / s;
+            s = angle * 3.1415926535897931 / 180.0;
+            c = std::cos(s);
+            s = std::sin(s);
+            angle = axisunit[0] * axisunit[0];
+            pose[0] = angle + c * (1.0 - angle);
+            angle = axisunit[0] * axisunit[1] * (1.0 - c);
+            ex = axisunit[2] * s;
+            pose[4] = angle - ex;
+            pose_tmp = axisunit[0] * axisunit[2] * (1.0 - c);
+            b_pose_tmp = axisunit[1] * s;
+            pose[8] = pose_tmp + b_pose_tmp;
+            pose[1] = angle + ex;
+            angle = axisunit[1] * axisunit[1];
+            pose[5] = angle + (1.0 - angle) * c;
+            angle = axisunit[1] * axisunit[2] * (1.0 - c);
+            ex = axisunit[0] * s;
+            pose[9] = angle - ex;
+            pose[2] = pose_tmp - b_pose_tmp;
+            pose[6] = angle + ex;
+            angle = axisunit[2] * axisunit[2];
+            pose[10] = angle + (1.0 - angle) * c;
+            pose[3] = 0.0;
+            pose[7] = 0.0;
+            pose[11] = 0.0;
+            pose[15] = 1.0;
+        }
+    }
+
+    pose[12] = xyzuvw[0];
+    pose[13] = xyzuvw[1];
+    pose[14] = xyzuvw[2];
+}
+
 template <typename T>
 int inverse_kinematics_robot_xyzuvw(const T target_xyzuvw[6], T joints[ROBOT_nDOFs], const T* joints_estimate) {
     Matrix4x4 pose;
     xyzuvw_2_pose(target_xyzuvw, pose);
     return inverse_kinematics_robot(pose, joints, joints_estimate);
-}
-
-template <typename T>
-void forward_kinematics_robot_xyzuvw(const T joints[ROBOT_nDOFs], T target_xyzuvw[6]) {
-    Matrix4x4 pose;
-    forward_kinematics_robot(joints, pose);
-    pose_2_xyzuvw(pose, target_xyzuvw);
 }
 
 template <typename T>
@@ -411,6 +520,16 @@ void forward_kinematics_robot(const T joints[ROBOT_nDOFs], Matrix4x4 target) {
     Matrix_Multiply(target, invBaseFrame, pose_arm);
     Matrix_Multiply_Cumul(target, Robot_ToolFrame);
 }
+
+
+template <typename T>
+void forward_kinematics_robot_xyzuvw(const T joints[ROBOT_nDOFs], T target_xyzuvw[6]) {
+    Matrix4x4 pose;
+    forward_kinematics_robot(joints, pose);
+    pose_2_xyzuvw(pose, target_xyzuvw);
+}
+
+
 
 
 
@@ -547,43 +666,7 @@ void DHM_2_pose(T rx, T tx, T rz, T tz, Matrix4x4 pose)
 }
 
 
-/// Returns the pose given the position (mm) and Euler angles (rad) as an array [x,y,z,rx,ry,rz].
-/// The result is the same as calling: H = transl(x,y,z)*rotx(rx)*roty(ry)*rotz(rz)
-template <typename T>
-void xyzwpr_2_pose(const T xyzwpr[6], Matrix4x4 pose)
-{
-    T srx;
-    T crx;
-    T sry;
-    T cry;
-    T srz;
-    T crz;
-    T H_tmp;
-    srx = std::sin(xyzwpr[3]);
-    crx = std::cos(xyzwpr[3]);
-    sry = std::sin(xyzwpr[4]);
-    cry = std::cos(xyzwpr[4]);
-    srz = std::sin(xyzwpr[5]);
-    crz = std::cos(xyzwpr[5]);
-    pose[0] = cry * crz;
-    pose[4] = -cry * srz;
-    pose[8] = sry;
-    pose[12] = xyzwpr[0];
-    H_tmp = crz * srx;
-    pose[1] = crx * srz + H_tmp * sry;
-    crz *= crx;
-    pose[5] = crz - srx * sry * srz;
-    pose[9] = -cry * srx;
-    pose[13] = xyzwpr[1];
-    pose[2] = srx * srz - crz * sry;
-    pose[6] = H_tmp + crx * sry * srz;
-    pose[10] = crx * cry;
-    pose[14] = xyzwpr[2];
-    pose[3] = 0.0;
-    pose[7] = 0.0;
-    pose[11] = 0.0;
-    pose[15] = 1.0;
-}
+
 
 /// Calculate the [x,y,z,u,v,w] position with rotation vector for a pose target
 template <typename T>
@@ -666,82 +749,6 @@ void pose_2_xyzuvw(const Matrix4x4 pose, T out[6])
     out[5] = vector[2] * sin_angle * 3.1415926535897931 / 180.0;
 }
 
-/// Calcualte the pose given XYZ and UVW rotation vector
-template <typename T>
-void xyzuvw_2_pose(const T xyzuvw[6], Matrix4x4 pose)
-{
-    T s;
-    T angle;
-    T axisunit[3];
-    T ex;
-    T c;
-    T pose_tmp;
-    T b_pose_tmp;
-    s = std::sqrt((xyzuvw[3] * xyzuvw[3] + xyzuvw[4] * xyzuvw[4]) + xyzuvw[5] *
-        xyzuvw[5]);
-    angle = s * 180.0 / 3.1415926535897931;
-    if (std::abs(angle) < 1.0E-6) {
-        memset(&pose[0], 0, sizeof(T) << 4);
-        pose[0] = 1.0;
-        pose[5] = 1.0;
-        pose[10] = 1.0;
-        pose[15] = 1.0;
-    }
-    else {
-        axisunit[1] = std::abs(xyzuvw[4]);
-        axisunit[2] = std::abs(xyzuvw[5]);
-        ex = std::abs(xyzuvw[3]);
-        if (std::abs(xyzuvw[3]) < axisunit[1]) {
-            ex = axisunit[1];
-        }
-
-        if (ex < axisunit[2]) {
-            ex = axisunit[2];
-        }
-
-        if (ex < 1.0E-6) {
-            memset(&pose[0], 0, sizeof(T) << 4);
-            pose[0] = 1.0;
-            pose[5] = 1.0;
-            pose[10] = 1.0;
-            pose[15] = 1.0;
-        }
-        else {
-            axisunit[0] = xyzuvw[3] / s;
-            axisunit[1] = xyzuvw[4] / s;
-            axisunit[2] = xyzuvw[5] / s;
-            s = angle * 3.1415926535897931 / 180.0;
-            c = std::cos(s);
-            s = std::sin(s);
-            angle = axisunit[0] * axisunit[0];
-            pose[0] = angle + c * (1.0 - angle);
-            angle = axisunit[0] * axisunit[1] * (1.0 - c);
-            ex = axisunit[2] * s;
-            pose[4] = angle - ex;
-            pose_tmp = axisunit[0] * axisunit[2] * (1.0 - c);
-            b_pose_tmp = axisunit[1] * s;
-            pose[8] = pose_tmp + b_pose_tmp;
-            pose[1] = angle + ex;
-            angle = axisunit[1] * axisunit[1];
-            pose[5] = angle + (1.0 - angle) * c;
-            angle = axisunit[1] * axisunit[2] * (1.0 - c);
-            ex = axisunit[0] * s;
-            pose[9] = angle - ex;
-            pose[2] = pose_tmp - b_pose_tmp;
-            pose[6] = angle + ex;
-            angle = axisunit[2] * axisunit[2];
-            pose[10] = angle + (1.0 - angle) * c;
-            pose[3] = 0.0;
-            pose[7] = 0.0;
-            pose[11] = 0.0;
-            pose[15] = 1.0;
-        }
-    }
-
-    pose[12] = xyzuvw[0];
-    pose[13] = xyzuvw[1];
-    pose[14] = xyzuvw[2];
-}
 
 template <typename T>
 void inverse_kinematics_raw(const T pose[16], const tRobot DK, const T joints_approx_in[6], T joints[6], int* nsol)

@@ -1,10 +1,11 @@
 
 Using Source Code
 	- review source code video https://youtu.be/2VGkgCKXVc0
-	1. Install Python 3.12.1 
+	1. Install Python  
 	2. Open CMD window and navigate to the folder python was installed in.
 	3. Load each of the following Python modules:
 		python -m pip install pyserial
+		python -m pip install inputs
 		python -m pip install numpy
 		python -m pip install ttkthemes
 		python -m pip install opencv-python
@@ -15,8 +16,7 @@ Using Source Code
 		python -m pip install datetime
 		python -m pip install pathlib
 		python -m pip install scipy
-		python -m pip install ttkbootstrap
-		python -m pip install vtk
+		python -m pip installttkbootstrap
 		
 		
     4. Compile kinematics.cpp

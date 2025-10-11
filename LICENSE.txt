@@ -1,0 +1,96 @@
+ANNIN ROBOTICS OPEN SOURCE NON-COMMERCIAL LICENSE AGREEMENT
+Version 1.1 — 2025
+
+Copyright (c) 2019–Present, Chris Annin
+All rights reserved.
+Contact: info@anninrobotics.com
+Website: https://www.anninrobotics.com
+
+────────────────────────────────────────────────────────────
+COPYRIGHTS & TRADEMARKS
+────────────────────────────────────────────────────────────
+The following materials are protected under United States copyright and trademark law:
+
+  US Copyrights:
+    • TX 9-084-705
+    • VA 2-298-451
+    • TX 9-084-714
+
+  US Trademarks:
+    • SN 97-876,621 (Registration No. 7372344)
+    • SN 97-017,172 (Registration No. 7058419)
+
+────────────────────────────────────────────────────────────
+SECTION 1 — SOFTWARE LICENSE
+(Open Source — Non-Commercial Use Only)
+────────────────────────────────────────────────────────────
+This section applies to Annin Robotics software, including source code, firmware, and control applications.
+
+1.1  License Grant  
+Permission is hereby granted, free of charge, to any person obtaining a copy of this
+software and associated documentation files (the “Software”), to use, copy, and
+redistribute it in source and binary forms, with or without modification, for
+**non-commercial purposes only**, subject to the following conditions:
+
+1.2  Conditions
+  • **Attribution:** Redistributions must retain the above copyright notice,
+    this list of conditions, and the following disclaimer.  
+  • **Free Distribution:** Redistribution in source or binary form must be
+    free of charge.  
+  • **Credit:** You must provide appropriate credit and indicate if changes
+    were made, in a reasonable manner that does not suggest endorsement by
+    Chris Annin or Annin Robotics.  
+  • **Prohibited Use:** Commercial sale, licensing, or monetization of the
+    Software or derivative works thereof is strictly prohibited without prior
+    written consent.
+
+1.3  Disclaimer of Warranty and Liability  
+The Software is provided “AS IS”, without warranty of any kind, express or implied,
+including but not limited to the warranties of merchantability, fitness for a
+particular purpose, and noninfringement. In no event shall Chris Annin be liable
+for any claim, damages, or other liability, whether in an action of contract, tort,
+or otherwise, arising from the use of the Software.
+
+────────────────────────────────────────────────────────────
+SECTION 2 — HARDWARE, DESIGN FILES, AND CAD MODELS LICENSE
+────────────────────────────────────────────────────────────
+This section applies to all Annin Robotics mechanical designs, robot parts,
+3D models, CAD files, and print files.
+
+2.1  Permitted Use  
+These materials are provided strictly for educational, research, and personal
+non-commercial use.
+
+2.2  Restrictions
+  • **No Redistribution:** Redistribution, republishing, or hosting of design
+    files or physical components in any form is strictly prohibited.  
+  • **No Rebranding:** All original branding, logos, and names must be retained.
+    Rebranding or removal of trademarks is prohibited.  
+  • **No Commercial Use:** Selling robots, robot parts, kits, derivatives, or
+    modified versions of these designs is strictly prohibited without explicit
+    written permission.
+
+If you wish to incorporate Annin Robotics designs or software into a commercial
+product or service (for example, as part of a larger automated system), please
+contact info@anninrobotics.com to discuss a separate commercial license.
+
+────────────────────────────────────────────────────────────
+SECTION 3 — TRADEMARK USAGE
+────────────────────────────────────────────────────────────
+Use of the “Annin Robotics” name or associated trademarks is restricted. You may
+not use the name, logo, or other identifying marks for promotional or commercial
+purposes without prior authorization.
+
+────────────────────────────────────────────────────────────
+SECTION 4 — CONTACT & COMMERCIAL LICENSING
+────────────────────────────────────────────────────────────
+For questions, licensing inquiries, or commercial use requests, contact:
+
+  info@anninrobotics.com  
+  https://www.anninrobotics.com
+
+────────────────────────────────────────────────────────────
+OPTIONAL LICENSE BADGES (For Online Publishing)
+────────────────────────────────────────────────────────────
+  • Software: License — BSD 3-Clause (Non-Commercial Use Only)
+  • CAD Files: License — Custom Non-Commercial Educational Use
