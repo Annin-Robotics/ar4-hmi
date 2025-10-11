@@ -1,0 +1,8 @@
+ttkthemes
+matplotlib
+vtk
+pyserial
+opencv-python
+opencv-contrib-python
+inputs
+ttkbootstrap

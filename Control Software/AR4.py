@@ -1,5 +1,7 @@
+#!/usr/bin/env python
+
 ############################################################################
-## Version AR4 6.2.1 #########################################################
+## Version AR4 6.3 #########################################################
 ############################################################################
 """ AR4 - robot control software
     Copyright (c) 2024, Chris Annin
@@ -64,12 +66,12 @@
   VERSION 6.1 8/29/25 updated accel and decel, auto calibrate & microsteps
   VERSION 6.2 9/12/25 changed bootstrap theme, xbox upgrade
   VERSION 6.2.1 9/24/25 fixed slider position update
+  VERSION 6.3 10/8/25 - JK - changed COM entry to dropdown, added beta Linux support, added basic config module
 '''
 ##########################################################################
 ##########################################################################
 
-
-
+import logging
 from multiprocessing.resource_sharer import stop
 from os import execv
 from tkinter import *
@@ -82,15 +84,13 @@ from tkinter import simpledialog
 from tkinter import messagebox
 from PIL import Image, ImageTk
 from matplotlib import pyplot as plt
-from pygrabber.dshow_graph import FilterGraph
+
 from tkinter import filedialog as fd
 from functools import partial
 from vtkmodules.tk.vtkTkRenderWindowInteractor import vtkTkRenderWindowInteractor
 import vtkmodules.vtkInteractionStyle as vtkIS
 from queue import Queue
 import ctypes
-
-
 
 import sys
 import pickle
@@ -115,18 +115,117 @@ from threading import Lock
 from threading import Thread
 import robot_kinematics as robot
 
+#####################################################################################
+# Cross-Compat Patch
+# We need platform awareness, port enumeration, and some typing imports
+
+from pathlib import Path
+import platform
+from serial.tools import list_ports
+from typing import List
+
+from modules.ar_config import AR_Configuration
+
+global Config, CE
+Config = AR_Configuration()
+CE = Config.Environment
+
+if CE['Platform']['IS_WINDOWS']:
+  from pygrabber.dshow_graph import FilterGraph
+
+'''
+class FilterGraph:
+    """Minimal replacement for pygrabber.dshow_graph.FilterGraph (enumeration only).
+    for cross-platform support and minimal re-write"""
+
+    def __init__(self):
+        # Pick a backend that works well per-OS
+        sysname = platform.system()
+        if sysname == "Windows":
+            self._backend = cv2.CAP_DSHOW  # or cv2.CAP_MSMF
+        elif sysname == "Linux":
+            self._backend = cv2.CAP_V4L2
+        else:
+            self._backend = 0
+
+    def get_input_devices(self, max_scan: int = 10) -> List[str]:
+        """Return a list of camera *names* (best-effort)."""
+        names: List[str] = []
+
+        # On Linux, expand scan range based on /dev/video*
+        if platform.system() == "Linux":
+            try:
+                devs = [
+                    int(d[5:]) for d in os.listdir("/dev")
+                    if d.startswith("video") and d[5:].isdigit()
+                ]
+                if devs:
+                    max_scan = max(max_scan, max(devs) + 1)
+            except Exception:
+                pass
+
+        for idx in range(max_scan):
+            cap = cv2.VideoCapture(idx, self._backend)
+            ok = cap.isOpened()
+            cap.release()
+            if not ok:
+                continue
+
+            # Default label
+            name = f"Camera {idx}"
+            names.append(name)
+
+        return names
+'''
+################################################################################################
+## Logging Configuration
+logger = logging.getLogger("AR4_HMI:Main")
+logger.setLevel(logging.DEBUG)
+
+# Add console handler
+console = logging.StreamHandler(sys.stdout)
+console.setFormatter(logging.Formatter("%(name)s: %(asctime)s [%(levelname)s] %(message)s"))
+logger.addHandler(console)
+
+# Function to log to Pane 8
+def pane8_log(message):
+    if tab8 and hasattr(tab8, "ElogView"):
+      Curtime = datetime.datetime.now().strftime("%B %d %Y - %I:%M%p")
+      try:
+          # Schedule insertion on Tkinter main thread
+          tab8.ElogView.after(0, lambda: tab8.ElogView.insert(END, f"{Curtime} - {message}"))
+      except tk.TclError:
+          pass  # widget likely gone
+
+# Setup Pane8 as a logging handler and log there
+from modules.ar_logging import CustomOutputHandler
+
+pane8_handler = CustomOutputHandler(pane8_log)
+pane8_handler.setFormatter(logging.Formatter("%(levelname)s - %(message)s"))
+logger.addHandler(pane8_handler)
+
+################################################################################################
 
 robot.robot_set()
 
 
 DIR = pathlib.Path(__file__).parent.resolve()
+os.chdir(DIR)
 
 cropping = False
 
 
 root = Tk()
-root.wm_title("AR4 Software Ver 6.2.1")
-root.iconbitmap(r'AR.ico')
+root.wm_title("AR4 Software Ver 6.3")
+
+#####################################################################################
+# Cross-Compat Patch
+# Linux doesn't like iconbitmap so we will use iconphoto which requires a png
+
+#root.iconbitmap(r'AR.ico')
+root.iconphoto(True, tk.PhotoImage(file="AR.png"))
+#####################################################################################
+
 root.resizable(width=False, height=False)
 root.geometry('1536x792+0+0')
 root.runTrue = 0
@@ -236,9 +335,6 @@ liveJog = False
 
 global progRunning
 progRunning = False
-
-global sliderActive
-sliderActive = False
 
 offlineMode = False
 
@@ -399,7 +495,7 @@ def update_CPP_kin_from_entries():
           
 
     except ValueError as e:
-        print("Invalid parameter input:", e)
+        logger.error(f"Invalid parameter input: {e}")
         return None 
 
 
@@ -430,7 +526,7 @@ def refresh_gui_from_joint_angles(joint_angles):
         fk_xyzuvw = robot.forward_kinematics(joint_angles)
         xyzuvw = fk_xyzuvw[:3] + [math.degrees(v) for v in fk_xyzuvw[3:]]
     except Exception as e:
-        print("Forward kinematics failed:", e)
+        logger.error(f"Forward kinematics failed: {e}")
         return
 
     # Cast and unpack as strings with 3 decimal places
@@ -466,7 +562,7 @@ def refresh_gui_from_joint_angles(joint_angles):
     else:
       WC = "N"
 
-    print(J5AngCur)  
+    logger.info(J5AngCur)  
 
     J1curAngEntryField.delete(0, 'end')
     J1curAngEntryField.insert(0,J1AngCur)
@@ -512,7 +608,7 @@ def refresh_gui_from_joint_angles(joint_angles):
 
 def start_driveMotorsJ_thread(*args):
     if drive_lock.locked():
-        print("Drive already in progress — ignoring new command.")
+        logger.info("Drive already in progress — ignoring new command.")
         return
     t = threading.Thread(target=run_driveMotorsJ_safe, args=args, daemon=True)
     t.start()
@@ -684,7 +780,7 @@ def parse_mj_command(inData):
     pattern = r"X([-+]?[0-9.]+)Y([-+]?[0-9.]+)Z([-+]?[0-9.]+)Rz([-+]?[0-9.]+)Ry([-+]?[0-9.]+)Rx([-+]?[0-9.]+)Sp([-+]?[0-9.]+)Ac([-+]?[0-9.]+)Dc([-+]?[0-9.]+)Rm([-+]?[0-9.]+)"
     match = re.search(pattern, inData)
     if not match:
-        print("MJ command parse failed")
+        logger.error("MJ command parse failed")
         return None
 
     vals = [float(v) for v in match.groups()]
@@ -705,7 +801,7 @@ def parse_mt_command(inData):
     # Extract axis and direction (e.g., JTX1 or JTP0)
     axis_match = re.search(r'(JT[XYZRPW])([01])([-+]?[0-9.]+)', inData)
     if not axis_match:
-        print("Tool jog command parse failed (axis part)")
+        logger.error("Tool jog command parse failed (axis part)")
         return None
 
     axis_str = axis_match.group(1)
@@ -713,7 +809,7 @@ def parse_mt_command(inData):
     value = float(axis_match.group(3))
 
     if axis_str not in axis_map:
-        print(f"Unknown axis code: {axis_str}")
+        logger.warning(f"Unknown axis code: {axis_str}")
         return None
 
     axis_index = axis_map[axis_str]
@@ -729,7 +825,7 @@ def parse_mt_command(inData):
         Ramp = float(inData[inData.index("I") + 1 : inData.index("Lm")])
         LoopMode = inData.split("Lm")[1].strip()
     except Exception as e:
-        print(f"Tool jog command parse failed (parameters): {e}")
+        logger.error(f"Tool jog command parse failed (parameters): {e}")
         return None
 
     return {
@@ -833,7 +929,7 @@ def mj_command(inData):
     global J1StepLim, J2StepLim, J3StepLim, J4StepLim, J5StepLim, J6StepLim
     global cur_steps, Alarm, VR_angles
 
-    print(inData)
+    logger.info(inData)
 
     result = parse_mj_command(inData)
     if not result:
@@ -856,7 +952,7 @@ def mj_command(inData):
 
     if JangleOut is None:
         if offlineMode:
-          print("Inverse kinematics failed. No solution found.")
+          logger.error("Inverse kinematics failed. No solution found.")
           ErrorHandler("ER")
         return
 
@@ -902,7 +998,7 @@ def mj_command(inData):
         if offlineMode:
           Alarm = "EL" + ''.join(str(f) for f in faults)
           ErrorHandler(Alarm)
-          print(Alarm)
+          logger.error(Alarm)
 
 
 
@@ -949,7 +1045,7 @@ def mt_command(inData):
 
     if JangleOut is None:
         if offlineMode:
-            print("Inverse kinematics failed. No solution found.")
+            logger.error("Inverse kinematics failed. No solution found.")
             ErrorHandler("ER")
         return
 
@@ -1027,7 +1123,7 @@ def live_joint_jog(in_data):
             Jangles = [float(a) for a in VR_angles[:6]]
         except Exception as e:
             if offlineMode:
-              print("Invalid VR_angles:", VR_angles[:6])
+              logger.error("Invalid VR_angles:", VR_angles[:6])
               Alarm = "ER"
               ErrorHandler(Alarm)
             return
@@ -1130,7 +1226,7 @@ def live_cartesian_jog(in_data):
         try:
             JangleOut = robot.SolveInverseKinematics(xyzuvw_In, VR_angles)
         except Exception as e:
-            print("IK Exception:", e)
+            logger.error("IK Exception:", e)
             ErrorHandler("ER")
             break
 
@@ -1249,7 +1345,7 @@ def live_tool_jog(in_data):
         try:
             JangleOut = robot.SolveInverseKinematics(xyzuvw_In, VR_angles)
         except Exception as e:
-            print("IK Exception:", e)
+            logger.error(f"IK Exception: {e}")
             ErrorHandler("ER")
             break
 
@@ -1666,7 +1762,7 @@ def launch_vtk_nonblocking(root_widget):
 def update_stl_transform():
     name = stl_name_var.get()
     if name not in imported_actors:
-        print("File not found in imported actors.")
+        logger.error("File not found in imported actors.")
         return
 
     actor = imported_actors[name]
@@ -1676,7 +1772,7 @@ def update_stl_transform():
         z = float(z_var.get())
         rot = float(rot_var.get())
     except ValueError:
-        print("Invalid number entered.")
+        logger.error("Invalid number entered.")
         return
 
     transform = vtk.vtkTransform()
@@ -1762,8 +1858,8 @@ def startup_spinner(root, message="Please wait…"):
     win.grab_set()  # modal
 
     # Use same icon as main window
-    win.iconbitmap(r'AR.ico')
-
+    #win.iconbitmap(r'AR.png')
+    win.iconphoto(True, tk.PhotoImage(file="AR.png"))
     ttk.Label(win, text=message, padding=12).pack()
     pb = ttk.Progressbar(win, mode="indeterminate", length=220)
     pb.pack(padx=12, pady=(0, 12))
@@ -1779,7 +1875,7 @@ def startup_spinner(root, message="Please wait…"):
     return win, pb
 
 
-def startup_with_spinner(root):
+def startup_with_spinner(root, timeout=10.0):
     spinner, pb = startup_spinner(root, "Please Wait.. System Starting")
     q = Queue()
 
@@ -1787,24 +1883,29 @@ def startup_with_spinner(root):
         try:
             q.put(startup())
         except Exception as e:
-            q.put(e)  # surface errors too
+            q.put(e)
 
     Thread(target=worker, daemon=True).start()
 
-    # Pump Tk so the spinner paints/animates while we wait
-    while q.empty():
+    deadline = time.monotonic() + timeout
+    while q.empty() and time.monotonic() < deadline:
         root.update()
         time.sleep(0.01)
 
-    res = q.get()
-    # close spinner
+    # close spinner (success or timeout)
     try: pb.stop()
     except: pass
     try: spinner.grab_release()
     except: pass
     spinner.destroy()
 
+    if q.empty():
+        logger.error("UNABLE TO ESTABLISH COMMUNICATIONS WITH TEENSY 4.1 CONTROLLER (timed out after %.1fs)", timeout)
+        raise TimeoutError(f"Startup timed out after {timeout:.1f}s")
+
+    res = q.get()
     if isinstance(res, Exception):
+        logger.exception("Startup failed while initializing Teensy 4.1 controller")
         raise res
     return res
 
@@ -1826,47 +1927,91 @@ def startup():
 ### COMMUNICATION DEFS ################################################################################################################# COMMUNICATION DEFS ###
 ###############################################################################################################################################################
 
-def setCom(): 
+###############################################################################################################################################################
+# Change of field to support automatic comm detection and drop down
+# Added exception output to log window
+def setCom(misc=None):  # Requires an input parameter for element use / it's unused
+  global ser
+  Curtime = datetime.datetime.now().strftime("%B %d %Y - %I:%M%p")
+  port = com1SelectedValue.get()
+  baud = 9600
+
+  # If something was already open, close it first (prevents WinError 5 on switch)
   try:
-    global ser    
-    port = "COM" + comPortEntryField.get()  
-    baud = 9600    
-    ser = serial.Serial(port,baud)
-    Curtime = datetime.datetime.now().strftime("%B %d %Y - %I:%M%p")
-    tab8.ElogView.insert(END, Curtime+" - COMMUNICATIONS STARTED WITH TEENSY 4.1 CONTROLLER")
-    value=tab8.ElogView.get(0,END)
-    pickle.dump(value,open("ErrorLog","wb"))
-    time.sleep(.1)
-    ser.flushInput()
-    startup_with_spinner(root)
+    if 'ser' in globals() and ser and getattr(ser, "is_open", False):
+      ser.close()
+      time.sleep(0.2)  # give Windows a moment to release the handle
+  except Exception:
+    pass
+
+  try:
+    logger.info("COMMUNICATIONS STARTED WITH TEENSY 4.1 CONTROLLER on Port %s", port)
+
+    # Add small timeouts so reads/writes can’t hang forever
+    ser = serial.Serial(
+      port=port,
+      baudrate=baud
+    )
+
     almStatusLab.config(text="SYSTEM READY", style="OK.TLabel")
     almStatusLab2.config(text="SYSTEM READY", style="OK.TLabel")
-  except:
+    logger.info("COMMUNICATIONS STARTED WITH TEENSY 4.1 CONTROLLER")
+
+    time.sleep(.1)
+    # Prefer reset_input_buffer over deprecated flushInput
+    try:
+      ser.reset_input_buffer()
+      ser.reset_output_buffer()
+    except Exception:
+      pass
+
+    startup_with_spinner(root)  # if this raises, we’ll close port in except block below
+
+    # persist log view
+    value = tab8.ElogView.get(0, END)
+    pickle.dump(value, open("ErrorLog", "wb"))
+
+  except Exception as e:
+    # Ensure the port is closed on ANY failure after open
+    try:
+      if 'ser' in globals() and ser and getattr(ser, "is_open", False):
+        ser.close()
+        time.sleep(0.2)
+    except Exception:
+      pass
+
+    logger.exception("UNABLE TO ESTABLISH COMMUNICATIONS WITH TEENSY 4.1 CONTROLLER")
     almStatusLab.config(text="UNABLE TO ESTABLISH COMMUNICATIONS WITH TEENSY 4.1 CONTROLLER", style="Alarm.TLabel")
     almStatusLab2.config(text="UNABLE TO ESTABLISH COMMUNICATIONS WITH TEENSY 4.1 CONTROLLER", style="Alarm.TLabel")
-    Curtime = datetime.datetime.now().strftime("%B %d %Y - %I:%M%p")
-    tab8.ElogView.insert(END, Curtime+" - UNABLE TO ESTABLISH COMMUNICATIONS WITH TEENSY 4.1 CONTROLLER")
-    value=tab8.ElogView.get(0,END)
-    pickle.dump(value,open("ErrorLog","wb"))
+
+    # persist log view even on error
+    try:
+      value = tab8.ElogView.get(0, END)
+      pickle.dump(value, open("ErrorLog", "wb"))
+    except Exception:
+      pass
 
 
-def setCom2(): 
+def setCom2(misc=None): # Requires and input parameter for element use / its unused
   try:
-    global ser2    
-    port = "COM" + com2PortEntryField.get()  
+    global ser2
+    #port = "COM" + com2PortEntryField.get()
+    port = com2SelectedValue.get()
     baud = 9600    
     ser2 = serial.Serial(port,baud)
     #almStatusLab.config(text="SYSTEM READY", style="OK.TLabel")
     #almStatusLab2.config(text="SYSTEM READY", style="OK.TLabel")
-    Curtime = datetime.datetime.now().strftime("%B %d %Y - %I:%M%p")
-    tab8.ElogView.insert(END, Curtime+" - COMMUNICATIONS STARTED WITH ARDUINO IO BOARD")
+    logger.info(f"COMMUNICATIONS STARTED WITH ARDUINO IO BOARD on port: {port}")
+    #tab8.ElogView.insert(END, Curtime+f" - COMMUNICATIONS STARTED WITH ARDUINO IO BOARD on port: {port}")
     value=tab8.ElogView.get(0,END)
     pickle.dump(value,open("ErrorLog","wb"))
-  except:
+  except Exception as e:
+    logger.error(f"{e}")
+    #tab8.ElogView.insert(END, Curtime+f" - Error: {e}")
     #almStatusLab.config(text="UNABLE TO ESTABLISH COMMUNICATIONS WITH ARDUINO IO BOARD", style="Alarm.TLabel")
     #almStatusLab2.config(text="UNABLE TO ESTABLISH COMMUNICATIONS WITH ARDUINO IO BOARD", style="Alarm.TLabel")
-    Curtime = datetime.datetime.now().strftime("%B %d %Y - %I:%M%p")
-    tab8.ElogView.insert(END, Curtime+" - UNABLE TO ESTABLISH COMMUNICATIONS WITH ARDUINO IO BOARD")
+    logger.error(f"UNABLE TO ESTABLISH COMMUNICATIONS WITH ARDUINO IO BOARD")
+    #tab8.ElogView.insert(END, Curtime+" - UNABLE TO ESTABLISH COMMUNICATIONS WITH ARDUINO IO BOARD")
     value=tab8.ElogView.get(0,END)
     pickle.dump(value,open("ErrorLog","wb"))
     
@@ -1986,8 +2131,11 @@ def runProg():
       rowinproc = 1
       executeRow()
       while rowinproc == 1:
-        time.sleep(.1)	  
-      selRow = tab1.progView.curselection()[0]
+        time.sleep(.1)
+        try:
+          selRow = tab1.progView.curselection()[0]
+        except:
+          pass
       last = tab1.progView.index('end')
       #for row in range (0,selRow):
         #tab1.progView.itemconfig(row, {'fg': 'dodger blue'})
@@ -1995,9 +2143,12 @@ def runProg():
       #for row in range (selRow+1,last):
         #tab1.progView.itemconfig(row, {'fg': 'black'})
       tab1.progView.selection_clear(0, END)
-      selRow += 1
-      tab1.progView.select_set(selRow)
-      curRow += 1
+      try:
+        selRow += 1
+        tab1.progView.select_set(selRow)
+        curRow += 1
+      except:
+        pass
       time.sleep(.1)
       try:
         selRow = tab1.progView.curselection()[0]
@@ -3646,522 +3797,739 @@ def executeRow():
 
 ##xbox  ######################################################################################################################################################
 
+################################################################
+# New XBOX updates require windows DLL files
+# use old method when not on windows
 
 
-# ---------- XINPUT (Xbox 360 / Xbox One) ----------
-for _dll in ("XInput1_4.dll", "XInput9_1_0.dll", "XInput1_3.dll"):
-    try:
-        _xinput = ctypes.WinDLL(_dll); break
-    except OSError:
-        _xinput = None
-if _xinput is None:
-    raise OSError("XInput DLL not found")
+if CE['Platform']['IS_WINDOWS']:
+  # ---------- XINPUT (Xbox 360 / Xbox One) - Windows ----------
+  for _dll in ("XInput1_4.dll", "XInput9_1_0.dll", "XInput1_3.dll"):
+      try:
+          _xinput = ctypes.WinDLL(_dll); break
+      except OSError:
+          _xinput = None
+  if _xinput is None:
+      raise OSError("XInput DLL not found")
 
-class XINPUT_GAMEPAD(ctypes.Structure):
-    _fields_ = [
-        ("wButtons", ctypes.c_ushort),
-        ("bLeftTrigger", ctypes.c_ubyte),
-        ("bRightTrigger", ctypes.c_ubyte),
-        ("sThumbLX", ctypes.c_short),
-        ("sThumbLY", ctypes.c_short),
-        ("sThumbRX", ctypes.c_short),
-        ("sThumbRY", ctypes.c_short),
-    ]
-class XINPUT_STATE(ctypes.Structure):
-    _fields_ = [("dwPacketNumber", ctypes.c_uint), ("Gamepad", XINPUT_GAMEPAD)]
-XInputGetState = _xinput.XInputGetState
-XInputGetState.argtypes = [ctypes.c_uint, ctypes.POINTER(XINPUT_STATE)]
-XInputGetState.restype  = ctypes.c_uint
+  class XINPUT_GAMEPAD(ctypes.Structure):
+      _fields_ = [
+          ("wButtons", ctypes.c_ushort),
+          ("bLeftTrigger", ctypes.c_ubyte),
+          ("bRightTrigger", ctypes.c_ubyte),
+          ("sThumbLX", ctypes.c_short),
+          ("sThumbLY", ctypes.c_short),
+          ("sThumbRX", ctypes.c_short),
+          ("sThumbRY", ctypes.c_short),
+      ]
+  class XINPUT_STATE(ctypes.Structure):
+      _fields_ = [("dwPacketNumber", ctypes.c_uint), ("Gamepad", XINPUT_GAMEPAD)]
+  XInputGetState = _xinput.XInputGetState
+  XInputGetState.argtypes = [ctypes.c_uint, ctypes.POINTER(XINPUT_STATE)]
+  XInputGetState.restype  = ctypes.c_uint
 
-# ---------- Buttons / DPAD ----------
-BTN_A = 0x1000
-BTN_B = 0x2000
-BTN_X = 0x4000
-BTN_Y = 0x8000
-BTN_START = 0x0010
-BTN_LB = 0x0100
-BTN_RB = 0x0200
-DPAD_UP    = 0x0001
-DPAD_DOWN  = 0x0002
-DPAD_LEFT  = 0x0004
-DPAD_RIGHT = 0x0008
+  # ---------- Buttons / DPAD ----------
+  BTN_A = 0x1000
+  BTN_B = 0x2000
+  BTN_X = 0x4000
+  BTN_Y = 0x8000
+  BTN_START = 0x0010
+  BTN_LB = 0x0100
+  BTN_RB = 0x0200
+  DPAD_UP    = 0x0001
+  DPAD_DOWN  = 0x0002
+  DPAD_LEFT  = 0x0004
+  DPAD_RIGHT = 0x0008
 
-# ---------- Stick robustness ----------
-DZ_LX = 7849; DZ_LY = 7849
-DZ_RX = 8689 + 1500; DZ_RY = 8689 + 1500
-START_THR_L = 0.18; STOP_THR_L = 0.12
-START_THR_R = 0.22; STOP_THR_R = 0.10
-LPF_ALPHA_L = 0.30; LPF_ALPHA_R = 0.35
+  # ---------- Stick robustness ----------
+  DZ_LX = 7849; DZ_LY = 7849
+  DZ_RX = 8689 + 1500; DZ_RY = 8689 + 1500
+  START_THR_L = 0.18; STOP_THR_L = 0.12
+  START_THR_R = 0.22; STOP_THR_R = 0.10
+  LPF_ALPHA_L = 0.30; LPF_ALPHA_R = 0.35
 
-def _norm_axis(v, dz):
-    if abs(v) < dz: return 0.0
-    n = v / 32767.0
-    return -1.0 if n < -1.0 else (1.0 if n > 1.0 else n)
+  def _norm_axis(v, dz):
+      if abs(v) < dz: return 0.0
+      n = v / 32767.0
+      return -1.0 if n < -1.0 else (1.0 if n > 1.0 else n)
 
-def _lbl(text, style="Warn.TLabel"):
-    try:
-        root.after(0, lambda: almStatusLab.config(text=text, style=style))
-        root.after(0, lambda: almStatusLab2.config(text=text, style=style))
-    except Exception:
-        pass
+  def _lbl(text, style="Warn.TLabel"):
+      try:
+          root.after(0, lambda: almStatusLab.config(text=text, style=style))
+          root.after(0, lambda: almStatusLab2.config(text=text, style=style))
+      except Exception:
+          pass
 
-# ---------- Mode state (A=Joint, B=Cartesian) ----------
-_mainMode = 1
-def _show_mode_banner():
-    try:
-        _lbl("JOINT MODE" if _mainMode == 1 else "CARTESIAN MODE", style="Warn.TLabel")
-    except Exception:
-        pass
+  # ---------- Mode state (A=Joint, B=Cartesian) ----------
+  _mainMode = 1
+  def _show_mode_banner():
+      try:
+          _lbl("JOINT MODE" if _mainMode == 1 else "CARTESIAN MODE", style="Warn.TLabel")
+      except Exception:
+          pass
 
-# ---------- Tk-thread GUI calls ----------
-def _tk_call(fn, *args):
-    if not callable(fn): return False
-    try:
-        root.after(0, (lambda f=fn, a=args: f(*a)))
-        return True
-    except Exception:
-        return False
+  # ---------- Tk-thread GUI calls ----------
+  def _tk_call(fn, *args):
+      if not callable(fn): return False
+      try:
+          root.after(0, (lambda f=fn, a=args: f(*a)))
+          return True
+      except Exception:
+          return False
 
-def _gui_stop():
-    if _tk_call(globals().get("StopJog"), None):
-        return
-    try:
-        send_serial_command("S\n")
-    except Exception:
-        pass
+  def _gui_stop():
+      if _tk_call(globals().get("StopJog"), None):
+          return
+      try:
+          send_serial_command("S\n")
+      except Exception:
+          pass
 
-def _gui_start_joint(code):
-    _tk_call(globals().get("LiveJointJog"), code)
+  def _gui_start_joint(code):
+      _tk_call(globals().get("LiveJointJog"), code)
 
-def _gui_start_cart(code):
-    _tk_call(globals().get("LiveCarJog"), code)
+  def _gui_start_cart(code):
+      _tk_call(globals().get("LiveCarJog"), code)
 
-def _gui_start_tool(code):
-    _tk_call(globals().get("LiveToolJog"), code)
+  def _gui_start_tool(code):
+      _tk_call(globals().get("LiveToolJog"), code)
 
-# ----- Teach (X button) -----
-def _teach_position():
-    _tk_call(globals().get("teachInsertBelSelected"))
+  # ----- Teach (X button) -----
+  def _teach_position():
+      _tk_call(globals().get("teachInsertBelSelected"))
 
-# ----- Servo gripper toggle (Y button) over ser2 -----
-_grip_closed = False  # False = open; first press closes (SV0P0)
+  # ----- Servo gripper toggle (Y button) over ser2 -----
+  _grip_closed = False  # False = open; first press closes (SV0P0)
 
-def _nano_send(cmd):
-    def worker():
+  def _nano_send(cmd):
+      def worker():
+          try:
+              ser2.write(cmd.encode())
+              ser2.flushInput()
+              time.sleep(0.1)
+              ser2.read()
+          except Exception:
+              pass
+      threading.Thread(target=worker, daemon=True).start()
+
+  def _toggle_servo_gripper():
+      global _grip_closed
+      if not _grip_closed:
+          _nano_send("SV0P0\n")   # close
+          _grip_closed = True
+      else:
+          _nano_send("SV0P50\n")  # open
+          _grip_closed = False
+
+  # ----- Pneumatic gripper toggle (START) over ser2 -----
+  _pneu_open = False  # False = closed
+
+  def _toggle_pneu_gripper():
+      global _pneu_open
+      if not _pneu_open:
+          _nano_send("OFX8\n")   # OPEN
+          _pneu_open = True
+      else:
+          _nano_send("ONX8\n")   # CLOSE
+          _pneu_open = False
+
+  # ----- Triggers adjust speedEntryField (smart stepping) -----
+  def _bump_speed_smart(delta_hint):
+      def do():
+          try:
+              val = int(speedEntryField.get())
+          except Exception:
+              val = 25
+          if delta_hint < 0:
+              # Decrease: above 5 → -5; at/under 5 → -1 (to a floor of 1)
+              step = -5 if val > 5 else -1
+          else:
+              # Increase: below 5 → +1 up to 5; above 5 → +5
+              step = +1 if val < 5 else +5
+          newv = max(1, min(100, val + step))
+          speedEntryField.delete(0, 'end')
+          speedEntryField.insert(0, str(newv))
+      try:
+          root.after(0, do)
+      except Exception:
+          do()
+
+  # ---------- Joint arbiter ----------
+  _current = None
+  _pending_start = None
+  _last_input_time = 0.0
+  SWITCH_DELAY_MS = 60
+  WATCHDOG_MS     = 200
+
+  def _lj_code(j, direction):  # J1- = 10, J1+ = 11; J2- = 20, J2+ = 21; ...
+      return j*10 + (1 if direction > 0 else 0)
+
+  def _request_switch(new_active):
+      global _current, _pending_start
+      old = _current
+      if old == new_active:
+          return
+
+      def do_start_if_pending():
+          global _current, _pending_start
+          code = _pending_start; _pending_start = None
+          if code is not None:
+              _current = new_active
+              _gui_start_joint(code)
+
+      if old is not None:
+          _current = None
+          _pending_start = _lj_code(*new_active) if new_active else None
+          _gui_stop()
+          try: root.after(SWITCH_DELAY_MS, do_start_if_pending)
+          except Exception: do_start_if_pending()
+          return
+
+      if new_active is not None:
+          _current = new_active
+          _gui_start_joint(_lj_code(*new_active))
+
+  # ---------- Cartesian arbiter ----------
+  _cart_current = None
+  _cart_pending = None
+
+  def _cart_code(axis, d):
+      if axis == 'X':  return 10 if d < 0 else 11
+      if axis == 'Y':  return 20 if d < 0 else 21
+      if axis == 'Z':  return 30 if d < 0 else 31
+      if axis == 'Rx': return 40 if d < 0 else 41
+      if axis == 'Ry': return 50 if d < 0 else 51
+      if axis == 'Rz': return 60 if d < 0 else 61
+      return None
+
+  def _request_switch_cart(new_active):
+      global _cart_current, _cart_pending
+      old = _cart_current
+      if old == new_active:
+          return
+
+      def do_start_if_pending():
+          global _cart_current, _cart_pending
+          item = _cart_pending; _cart_pending = None
+          if item is not None:
+              _cart_current = item
+              axis, d = item
+              code = _cart_code(axis, d)
+              if code is not None:
+                  _gui_start_cart(code)
+
+      if old is not None:
+          _cart_current = None
+          _cart_pending = new_active
+          _gui_stop()
+          try: root.after(SWITCH_DELAY_MS, do_start_if_pending)
+          except Exception: do_start_if_pending()
+          return
+
+      if new_active is not None:
+          _cart_current = new_active
+          axis, d = new_active
+          code = _cart_code(axis, d)
+          if code is not None:
+              _gui_start_cart(code)
+
+  # ---------- Tool (Tz) arbiter (for bumpers) ----------
+  _tool_current = None
+  _tool_pending = None
+
+  def _tool_code(axis, d):
+      if axis == 'Tz': return 30 if d < 0 else 31   # per your LiveToolJog mapping
+      return None
+
+  def _request_switch_tool(new_active):
+      global _tool_current, _tool_pending
+      old = _tool_current
+      if old == new_active:
+          return
+
+      def do_start_if_pending():
+          global _tool_current, _tool_pending
+          item = _tool_pending; _tool_pending = None
+          if item is not None:
+              _tool_current = item
+              axis, d = item
+              code = _tool_code(axis, d)
+              if code is not None:
+                  _gui_start_tool(code)
+
+      if old is not None:
+          _tool_current = None
+          _tool_pending = new_active
+          _gui_stop()
+          try: root.after(SWITCH_DELAY_MS, do_start_if_pending)
+          except Exception: do_start_if_pending()
+          return
+
+      if new_active is not None:
+          _tool_current = new_active
+          axis, d = new_active
+          code = _tool_code(axis, d)
+          if code is not None:
+              _gui_start_tool(code)
+
+  # ---------- Watchdog (covers all 3 arbiters) ----------
+  def _watchdog_tick():
+      global _current, _pending_start, _cart_current, _cart_pending, _tool_current, _tool_pending, _last_input_time
+      try:
+          now = time.monotonic()
+          if (now - _last_input_time) * 1000.0 > WATCHDOG_MS:
+              if _current is not None or _cart_current is not None or _tool_current is not None:
+                  _current = None; _pending_start = None
+                  _cart_current = None; _cart_pending = None
+                  _tool_current = None; _tool_pending = None
+                  _gui_stop()
+      finally:
+          try: root.after(WATCHDOG_MS, _watchdog_tick)
+          except Exception: pass
+
+  # ---------- Axis selection (one axis per stick) ----------
+  _smooth = {'LX': 0, 'LY': 0, 'RX': 0, 'RY': 0}
+  def _lp(prev, new, alpha): return int(prev + alpha * (new - prev))
+
+  def _stick_to_axis(raw_x, raw_y, dz_x, dz_y, alpha, start_thr, stop_thr, tag):
+      """
+      Returns (axis, dir) with axis in {'X','Y',None}, dir in {-1,0,+1}
+      (One axis per stick; picks stronger if diagonal.)
+      """
+      if tag == 'L':
+          _smooth['LX'] = _lp(_smooth['LX'], raw_x, alpha)
+          _smooth['LY'] = _lp(_smooth['LY'], raw_y, alpha)
+          nx = _norm_axis(_smooth['LX'], dz_x); ny = _norm_axis(_smooth['LY'], dz_y)
+      else:
+          _smooth['RX'] = _lp(_smooth['RX'], raw_x, alpha)
+          _smooth['RY'] = _lp(_smooth['RY'], raw_y, alpha)
+          nx = _norm_axis(_smooth['RX'], dz_x); ny = _norm_axis(_smooth['RY'], dz_y)
+
+      ix = 1 if nx >= start_thr else (-1 if nx <= -start_thr else 0)
+      iy = 1 if ny >= start_thr else (-1 if ny <= -start_thr else 0)
+
+      if ix == 0 and iy == 0:
+          return None, 0
+      if ix != 0 and iy != 0:
+          return ('X', 1 if nx>0 else -1) if abs(nx) >= abs(ny) else ('Y', 1 if ny>0 else -1)
+      return ('X', ix) if ix != 0 else ('Y', iy)
+
+  # --- Dominant-axis lock for CARTESIAN left stick (prevents X<->Y flip mid-hold)
+  _cartL_lock = {'which': None, 'dir': 0}
+  def _cart_left_locked(raw_lx, raw_ly):
+      global _smooth
+      _smooth['LX'] = int(_smooth['LX'] + LPF_ALPHA_L * (raw_lx - _smooth['LX']))
+      _smooth['LY'] = int(_smooth['LY'] + LPF_ALPHA_L * (raw_ly - _smooth['LY']))
+      nx = _norm_axis(_smooth['LX'], DZ_LX)
+      ny = _norm_axis(_smooth['LY'], DZ_LY)
+      ix =  1 if nx >= START_THR_L else (-1 if nx <= -START_THR_L else 0)
+      iy =  1 if ny >= START_THR_L else (-1 if ny <= -START_THR_L else 0)
+      lock = _cartL_lock
+      if lock['which'] == 'X':
+          if abs(nx) > STOP_THR_L:
+              lock['dir'] = 1 if nx > 0 else -1
+              return 'X', lock['dir']
+          else:
+              lock['which'] = None; lock['dir'] = 0
+      elif lock['which'] == 'Y':
+          if abs(ny) > STOP_THR_L:
+              lock['dir'] = 1 if ny > 0 else -1
+              return 'Y', lock['dir']
+          else:
+              lock['which'] = None; lock['dir'] = 0
+      if ix == 0 and iy == 0:
+          return None, 0
+      if ix != 0 and iy != 0:
+          if abs(nx) >= abs(ny):
+              lock['which'] = 'X'; lock['dir'] = 1 if nx > 0 else -1
+          else:
+              lock['which'] = 'Y'; lock['dir'] = 1 if ny > 0 else -1
+      elif ix != 0:
+          lock['which'] = 'X'; lock['dir'] = ix
+      else:
+          lock['which'] = 'Y'; lock['dir'] = iy
+      return lock['which'], lock['dir']
+
+  # ---------- Controller plumbing ----------
+  def _find_controller():
+      st = XINPUT_STATE()
+      for i in range(4):
+          if XInputGetState(i, ctypes.byref(st)) == 0:
+              return i
+      return None
+
+  def _poll_loop():
+      global _mainMode, _last_input_time
+      idx = _find_controller()
+      if idx is None:
+          _lbl("No XInput controller detected"); return
+      _lbl(f"Xbox connected (slot {idx})")
+      try: root.after(WATCHDOG_MS, _watchdog_tick)
+      except Exception: pass
+
+      last_buttons = 0  # for edges X/Y/START/LB/RB
+      lt_down = False
+      rt_down = False
+      TRIG_THR = 30  # analog threshold for a 'press'
+
+      while True:
+          st = XINPUT_STATE()
+          if XInputGetState(idx, ctypes.byref(st)) != 0:
+              _request_switch(None); _request_switch_cart(None); _request_switch_tool(None)
+              _lbl("XBOX CONTROLLER NOT RESPONDING", style="Alarm.TLabel")
+              time.sleep(0.2)
+              idx = _find_controller()
+              if idx is not None: _lbl(f"Xbox reconnected (slot {idx})")
+              continue
+
+          gp = st.Gamepad
+          buttons = gp.wButtons
+
+          # --- Button edges: X (teach), Y (servo gripper), START (pneumatic gripper) ---
+          pressed = buttons & ~last_buttons
+          if pressed & BTN_X:
+              _teach_position()
+          if pressed & BTN_Y:
+              _toggle_servo_gripper()
+          if pressed & BTN_START:
+              _toggle_pneu_gripper()
+
+          # --- Triggers: smart speed (edge) ---
+          if gp.bLeftTrigger >= TRIG_THR and not lt_down:
+              lt_down = True
+              _bump_speed_smart(-1)
+          elif gp.bLeftTrigger < TRIG_THR and lt_down:
+              lt_down = False
+
+          if gp.bRightTrigger >= TRIG_THR and not rt_down:
+              rt_down = True
+              _bump_speed_smart(+1)
+          elif gp.bRightTrigger < TRIG_THR and rt_down:
+              rt_down = False
+
+          # --- Mode switching (A=Joint, B=Cartesian) ---
+          if buttons & BTN_A:
+              if _mainMode != 1:
+                  _request_switch(None); _request_switch_cart(None); _request_switch_tool(None)
+                  _mainMode = 1; _show_mode_banner()
+          elif buttons & BTN_B:
+              if _mainMode != 2:
+                  _request_switch(None); _request_switch_cart(None); _request_switch_tool(None)
+                  _mainMode = 2; _show_mode_banner()
+
+          # --- Tool bumpers (priority over sticks/dpad) ---
+          # LB => Tz−, RB => Tz+
+          intended_tool = None
+          if (buttons & BTN_LB) and not (buttons & BTN_RB):
+              intended_tool = ('Tz', -1)
+          elif (buttons & BTN_RB) and not (buttons & BTN_LB):
+              intended_tool = ('Tz', +1)
+          else:
+              intended_tool = None
+
+          if intended_tool is not None:
+              # tool jog takes priority: stop other modes first
+              _request_switch(None)
+              _request_switch_cart(None)
+              _request_switch_tool(intended_tool)
+          else:
+              _request_switch_tool(None)
+
+              # --- Movement based on mode (only if no tool jog active) ---
+              if _mainMode == 1:
+                  # JOINT MODE (custom mapping)
+                  axL, dirL = _stick_to_axis(gp.sThumbLX, gp.sThumbLY, DZ_LX, DZ_LY,
+                                            LPF_ALPHA_L, START_THR_L, STOP_THR_L, 'L')
+                  axR, dirR = _stick_to_axis(gp.sThumbRX, gp.sThumbRY, DZ_RX, DZ_RY,
+                                            LPF_ALPHA_R, START_THR_R, STOP_THR_R, 'R')
+
+                  # D-pad: J5 (Down=+1, Up=-1), J6 (Right=+1, Left=-1)
+                  dJ5 = (+1 if (buttons & DPAD_DOWN) else -1 if (buttons & DPAD_UP) else 0)
+                  dJ6 = (+1 if (buttons & DPAD_RIGHT) else -1 if (buttons & DPAD_LEFT) else 0)
+
+                  intended = None
+                  if dJ5 != 0:
+                      intended = (5, dJ5)
+                  elif dJ6 != 0:
+                      intended = (6, dJ6)
+                  elif axL is not None:
+                      intended = (1, -dirL) if axL == 'X' else (2, -dirL)
+                  elif axR is not None:
+                      intended = (3, dirR) if axR == 'X' else (4, dirR)
+
+                  _request_switch(intended)
+
+              else:
+                  # CARTESIAN MODE (left-stick axis lock)
+                  axL, dirL = _cart_left_locked(gp.sThumbLX, gp.sThumbLY)
+                  axR, dirR = _stick_to_axis(gp.sThumbRX, gp.sThumbRY, DZ_RX, DZ_RY,
+                                            LPF_ALPHA_R, START_THR_R, STOP_THR_R, 'R')
+
+                  # D-pad: Rx / Ry
+                  dRx = (+1 if (buttons & DPAD_UP)    else -1 if (buttons & DPAD_DOWN) else 0)
+                  dRy = (+1 if (buttons & DPAD_RIGHT) else -1 if (buttons & DPAD_LEFT) else 0)
+
+                  intended_cart = None
+                  if dRx != 0:
+                      intended_cart = ('Rx', dRx)
+                  elif dRy != 0:
+                      intended_cart = ('Ry', dRy)
+                  elif axL is not None:
+                      intended_cart = ('X', dirL) if axL == 'Y' else ('Y', -dirL)
+                  elif axR is not None:
+                      intended_cart = ('Rz', dirR) if axR == 'X' else ('Z', dirR)
+
+                  _request_switch_cart(intended_cart)
+
+          _last_input_time = time.monotonic()
+          last_buttons = buttons
+          time.sleep(0.008)  # ~120 Hz
+
+  # ---------- Public entry ----------
+  def start_xbox():
+      threading.Thread(target=_poll_loop, daemon=True).start()
+      _lbl("Xbox ON / polling…", style="Warn.TLabel")
+
+else:
+  from inputs import get_gamepad
+  def xbox():
+    def threadxbox():
+      global xboxUse
+      jogMode = 1
+      if xboxUse == 0:
+        xboxUse = 1
+        mainMode = 1
+        jogMode = 1
+        grip = 0
+        almStatusLab.config(text='JOGGING JOINTS 1 & 2', style="Warn.TLabel")
+        almStatusLab2.config(text='JOGGING JOINTS 1 & 2', style="Warn.TLabel")
+        xbcStatusLab.config(text='Xbox ON', )
+        ChgDis(2)
+      else:
+        xboxUse = 0
+        almStatusLab.config(text='XBOX CONTROLLER OFF', style="Warn.TLabel")
+        almStatusLab2.config(text='XBOX CONTROLLER OFF', style="Warn.TLabel")
+        xbcStatusLab.config(text='Xbox OFF', )
+      while xboxUse == 1:
         try:
-            ser2.write(cmd.encode())
-            ser2.flushInput()
-            time.sleep(0.1)
-            ser2.read()
-        except Exception:
-            pass
-    threading.Thread(target=worker, daemon=True).start()
-
-def _toggle_servo_gripper():
-    global _grip_closed
-    if not _grip_closed:
-        _nano_send("SV0P0\n")   # close
-        _grip_closed = True
-    else:
-        _nano_send("SV0P50\n")  # open
-        _grip_closed = False
-
-# ----- Pneumatic gripper toggle (START) over ser2 -----
-_pneu_open = False  # False = closed
-
-def _toggle_pneu_gripper():
-    global _pneu_open
-    if not _pneu_open:
-        _nano_send("OFX8\n")   # OPEN
-        _pneu_open = True
-    else:
-        _nano_send("ONX8\n")   # CLOSE
-        _pneu_open = False
-
-# ----- Triggers adjust speedEntryField (smart stepping) -----
-def _bump_speed_smart(delta_hint):
-    def do():
-        try:
-            val = int(speedEntryField.get())
-        except Exception:
-            val = 25
-        if delta_hint < 0:
-            # Decrease: above 5 → -5; at/under 5 → -1 (to a floor of 1)
-            step = -5 if val > 5 else -1
-        else:
-            # Increase: below 5 → +1 up to 5; above 5 → +5
-            step = +1 if val < 5 else +5
-        newv = max(1, min(100, val + step))
-        speedEntryField.delete(0, 'end')
-        speedEntryField.insert(0, str(newv))
-    try:
-        root.after(0, do)
-    except Exception:
-        do()
-
-# ---------- Joint arbiter ----------
-_current = None
-_pending_start = None
-_last_input_time = 0.0
-SWITCH_DELAY_MS = 60
-WATCHDOG_MS     = 200
-
-def _lj_code(j, direction):  # J1- = 10, J1+ = 11; J2- = 20, J2+ = 21; ...
-    return j*10 + (1 if direction > 0 else 0)
-
-def _request_switch(new_active):
-    global _current, _pending_start
-    old = _current
-    if old == new_active:
-        return
-
-    def do_start_if_pending():
-        global _current, _pending_start
-        code = _pending_start; _pending_start = None
-        if code is not None:
-            _current = new_active
-            _gui_start_joint(code)
-
-    if old is not None:
-        _current = None
-        _pending_start = _lj_code(*new_active) if new_active else None
-        _gui_stop()
-        try: root.after(SWITCH_DELAY_MS, do_start_if_pending)
-        except Exception: do_start_if_pending()
-        return
-
-    if new_active is not None:
-        _current = new_active
-        _gui_start_joint(_lj_code(*new_active))
-
-# ---------- Cartesian arbiter ----------
-_cart_current = None
-_cart_pending = None
-
-def _cart_code(axis, d):
-    if axis == 'X':  return 10 if d < 0 else 11
-    if axis == 'Y':  return 20 if d < 0 else 21
-    if axis == 'Z':  return 30 if d < 0 else 31
-    if axis == 'Rx': return 40 if d < 0 else 41
-    if axis == 'Ry': return 50 if d < 0 else 51
-    if axis == 'Rz': return 60 if d < 0 else 61
-    return None
-
-def _request_switch_cart(new_active):
-    global _cart_current, _cart_pending
-    old = _cart_current
-    if old == new_active:
-        return
-
-    def do_start_if_pending():
-        global _cart_current, _cart_pending
-        item = _cart_pending; _cart_pending = None
-        if item is not None:
-            _cart_current = item
-            axis, d = item
-            code = _cart_code(axis, d)
-            if code is not None:
-                _gui_start_cart(code)
-
-    if old is not None:
-        _cart_current = None
-        _cart_pending = new_active
-        _gui_stop()
-        try: root.after(SWITCH_DELAY_MS, do_start_if_pending)
-        except Exception: do_start_if_pending()
-        return
-
-    if new_active is not None:
-        _cart_current = new_active
-        axis, d = new_active
-        code = _cart_code(axis, d)
-        if code is not None:
-            _gui_start_cart(code)
-
-# ---------- Tool (Tz) arbiter (for bumpers) ----------
-_tool_current = None
-_tool_pending = None
-
-def _tool_code(axis, d):
-    if axis == 'Tz': return 30 if d < 0 else 31   # per your LiveToolJog mapping
-    return None
-
-def _request_switch_tool(new_active):
-    global _tool_current, _tool_pending
-    old = _tool_current
-    if old == new_active:
-        return
-
-    def do_start_if_pending():
-        global _tool_current, _tool_pending
-        item = _tool_pending; _tool_pending = None
-        if item is not None:
-            _tool_current = item
-            axis, d = item
-            code = _tool_code(axis, d)
-            if code is not None:
-                _gui_start_tool(code)
-
-    if old is not None:
-        _tool_current = None
-        _tool_pending = new_active
-        _gui_stop()
-        try: root.after(SWITCH_DELAY_MS, do_start_if_pending)
-        except Exception: do_start_if_pending()
-        return
-
-    if new_active is not None:
-        _tool_current = new_active
-        axis, d = new_active
-        code = _tool_code(axis, d)
-        if code is not None:
-            _gui_start_tool(code)
-
-# ---------- Watchdog (covers all 3 arbiters) ----------
-def _watchdog_tick():
-    global _current, _pending_start, _cart_current, _cart_pending, _tool_current, _tool_pending, _last_input_time
-    try:
-        now = time.monotonic()
-        if (now - _last_input_time) * 1000.0 > WATCHDOG_MS:
-            if _current is not None or _cart_current is not None or _tool_current is not None:
-                _current = None; _pending_start = None
-                _cart_current = None; _cart_pending = None
-                _tool_current = None; _tool_pending = None
-                _gui_stop()
-    finally:
-        try: root.after(WATCHDOG_MS, _watchdog_tick)
-        except Exception: pass
-
-# ---------- Axis selection (one axis per stick) ----------
-_smooth = {'LX': 0, 'LY': 0, 'RX': 0, 'RY': 0}
-def _lp(prev, new, alpha): return int(prev + alpha * (new - prev))
-
-def _stick_to_axis(raw_x, raw_y, dz_x, dz_y, alpha, start_thr, stop_thr, tag):
-    """
-    Returns (axis, dir) with axis in {'X','Y',None}, dir in {-1,0,+1}
-    (One axis per stick; picks stronger if diagonal.)
-    """
-    if tag == 'L':
-        _smooth['LX'] = _lp(_smooth['LX'], raw_x, alpha)
-        _smooth['LY'] = _lp(_smooth['LY'], raw_y, alpha)
-        nx = _norm_axis(_smooth['LX'], dz_x); ny = _norm_axis(_smooth['LY'], dz_y)
-    else:
-        _smooth['RX'] = _lp(_smooth['RX'], raw_x, alpha)
-        _smooth['RY'] = _lp(_smooth['RY'], raw_y, alpha)
-        nx = _norm_axis(_smooth['RX'], dz_x); ny = _norm_axis(_smooth['RY'], dz_y)
-
-    ix = 1 if nx >= start_thr else (-1 if nx <= -start_thr else 0)
-    iy = 1 if ny >= start_thr else (-1 if ny <= -start_thr else 0)
-
-    if ix == 0 and iy == 0:
-        return None, 0
-    if ix != 0 and iy != 0:
-        return ('X', 1 if nx>0 else -1) if abs(nx) >= abs(ny) else ('Y', 1 if ny>0 else -1)
-    return ('X', ix) if ix != 0 else ('Y', iy)
-
-# --- Dominant-axis lock for CARTESIAN left stick (prevents X<->Y flip mid-hold)
-_cartL_lock = {'which': None, 'dir': 0}
-def _cart_left_locked(raw_lx, raw_ly):
-    global _smooth
-    _smooth['LX'] = int(_smooth['LX'] + LPF_ALPHA_L * (raw_lx - _smooth['LX']))
-    _smooth['LY'] = int(_smooth['LY'] + LPF_ALPHA_L * (raw_ly - _smooth['LY']))
-    nx = _norm_axis(_smooth['LX'], DZ_LX)
-    ny = _norm_axis(_smooth['LY'], DZ_LY)
-    ix =  1 if nx >= START_THR_L else (-1 if nx <= -START_THR_L else 0)
-    iy =  1 if ny >= START_THR_L else (-1 if ny <= -START_THR_L else 0)
-    lock = _cartL_lock
-    if lock['which'] == 'X':
-        if abs(nx) > STOP_THR_L:
-            lock['dir'] = 1 if nx > 0 else -1
-            return 'X', lock['dir']
-        else:
-            lock['which'] = None; lock['dir'] = 0
-    elif lock['which'] == 'Y':
-        if abs(ny) > STOP_THR_L:
-            lock['dir'] = 1 if ny > 0 else -1
-            return 'Y', lock['dir']
-        else:
-            lock['which'] = None; lock['dir'] = 0
-    if ix == 0 and iy == 0:
-        return None, 0
-    if ix != 0 and iy != 0:
-        if abs(nx) >= abs(ny):
-            lock['which'] = 'X'; lock['dir'] = 1 if nx > 0 else -1
-        else:
-            lock['which'] = 'Y'; lock['dir'] = 1 if ny > 0 else -1
-    elif ix != 0:
-        lock['which'] = 'X'; lock['dir'] = ix
-    else:
-        lock['which'] = 'Y'; lock['dir'] = iy
-    return lock['which'], lock['dir']
-
-# ---------- Controller plumbing ----------
-def _find_controller():
-    st = XINPUT_STATE()
-    for i in range(4):
-        if XInputGetState(i, ctypes.byref(st)) == 0:
-            return i
-    return None
-
-def _poll_loop():
-    global _mainMode, _last_input_time
-    idx = _find_controller()
-    if idx is None:
-        _lbl("No XInput controller detected"); return
-    _lbl(f"Xbox connected (slot {idx})")
-    try: root.after(WATCHDOG_MS, _watchdog_tick)
-    except Exception: pass
-
-    last_buttons = 0  # for edges X/Y/START/LB/RB
-    lt_down = False
-    rt_down = False
-    TRIG_THR = 30  # analog threshold for a 'press'
-
-    while True:
-        st = XINPUT_STATE()
-        if XInputGetState(idx, ctypes.byref(st)) != 0:
-            _request_switch(None); _request_switch_cart(None); _request_switch_tool(None)
-            _lbl("XBOX CONTROLLER NOT RESPONDING", style="Alarm.TLabel")
-            time.sleep(0.2)
-            idx = _find_controller()
-            if idx is not None: _lbl(f"Xbox reconnected (slot {idx})")
-            continue
-
-        gp = st.Gamepad
-        buttons = gp.wButtons
-
-        # --- Button edges: X (teach), Y (servo gripper), START (pneumatic gripper) ---
-        pressed = buttons & ~last_buttons
-        if pressed & BTN_X:
-            _teach_position()
-        if pressed & BTN_Y:
-            _toggle_servo_gripper()
-        if pressed & BTN_START:
-            _toggle_pneu_gripper()
-
-        # --- Triggers: smart speed (edge) ---
-        if gp.bLeftTrigger >= TRIG_THR and not lt_down:
-            lt_down = True
-            _bump_speed_smart(-1)
-        elif gp.bLeftTrigger < TRIG_THR and lt_down:
-            lt_down = False
-
-        if gp.bRightTrigger >= TRIG_THR and not rt_down:
-            rt_down = True
-            _bump_speed_smart(+1)
-        elif gp.bRightTrigger < TRIG_THR and rt_down:
-            rt_down = False
-
-        # --- Mode switching (A=Joint, B=Cartesian) ---
-        if buttons & BTN_A:
-            if _mainMode != 1:
-                _request_switch(None); _request_switch_cart(None); _request_switch_tool(None)
-                _mainMode = 1; _show_mode_banner()
-        elif buttons & BTN_B:
-            if _mainMode != 2:
-                _request_switch(None); _request_switch_cart(None); _request_switch_tool(None)
-                _mainMode = 2; _show_mode_banner()
-
-        # --- Tool bumpers (priority over sticks/dpad) ---
-        # LB => Tz−, RB => Tz+
-        intended_tool = None
-        if (buttons & BTN_LB) and not (buttons & BTN_RB):
-            intended_tool = ('Tz', -1)
-        elif (buttons & BTN_RB) and not (buttons & BTN_LB):
-            intended_tool = ('Tz', +1)
-        else:
-            intended_tool = None
-
-        if intended_tool is not None:
-            # tool jog takes priority: stop other modes first
-            _request_switch(None)
-            _request_switch_cart(None)
-            _request_switch_tool(intended_tool)
-        else:
-            _request_switch_tool(None)
-
-            # --- Movement based on mode (only if no tool jog active) ---
-            if _mainMode == 1:
-                # JOINT MODE (custom mapping)
-                axL, dirL = _stick_to_axis(gp.sThumbLX, gp.sThumbLY, DZ_LX, DZ_LY,
-                                           LPF_ALPHA_L, START_THR_L, STOP_THR_L, 'L')
-                axR, dirR = _stick_to_axis(gp.sThumbRX, gp.sThumbRY, DZ_RX, DZ_RY,
-                                           LPF_ALPHA_R, START_THR_R, STOP_THR_R, 'R')
-
-                # D-pad: J5 (Down=+1, Up=-1), J6 (Right=+1, Left=-1)
-                dJ5 = (+1 if (buttons & DPAD_DOWN) else -1 if (buttons & DPAD_UP) else 0)
-                dJ6 = (+1 if (buttons & DPAD_RIGHT) else -1 if (buttons & DPAD_LEFT) else 0)
-
-                intended = None
-                if dJ5 != 0:
-                    intended = (5, dJ5)
-                elif dJ6 != 0:
-                    intended = (6, dJ6)
-                elif axL is not None:
-                    intended = (1, -dirL) if axL == 'X' else (2, -dirL)
-                elif axR is not None:
-                    intended = (3, dirR) if axR == 'X' else (4, dirR)
-
-                _request_switch(intended)
-
+        #if (TRUE):
+          events = get_gamepad()
+          for event in events:
+            ##DISTANCE
+            if (event.code == 'ABS_RZ' and event.state >= 100):
+              ChgDis(0)
+            elif (event.code == 'ABS_Z' and event.state >= 100): 
+              ChgDis(1)
+            ##SPEED
+            elif (event.code == 'BTN_TR' and event.state == 1): 
+              ChgSpd(0)
+            elif (event.code == 'BTN_TL' and event.state == 1): 
+              ChgSpd(1)
+            ##JOINT MODE
+            elif (event.code == 'BTN_WEST' and event.state == 1): 
+              if mainMode != 1:
+                mainMode = 1
+                jogMode = 1
+                almStatusLab.config(text='JOGGING JOINTS 1 & 2', style="Warn.TLabel")
+                almStatusLab2.config(text='JOGGING JOINTS 1 & 2', style="Warn.TLabel")
+              else:                
+                jogMode +=1        
+              if jogMode == 2:
+                almStatusLab.config(text='JOGGING JOINTS 3 & 4', style="Warn.TLabel")
+                almStatusLab2.config(text='JOGGING JOINTS 3 & 4', style="Warn.TLabel")
+              elif jogMode == 3:
+                almStatusLab.config(text='JOGGING JOINTS 5 & 6', style="Warn.TLabel")
+                almStatusLab2.config(text='JOGGING JOINTS 5 & 6', style="Warn.TLabel")
+              elif jogMode == 4:
+                jogMode = 1
+                almStatusLab.config(text='JOGGING JOINTS 1 & 2', style="Warn.TLabel")
+                almStatusLab2.config(text='JOGGING JOINTS 1 & 2', style="Warn.TLabel")
+            ##JOINT JOG
+            elif (mainMode == 1 and event.code == 'ABS_HAT0X' and event.state == 1 and jogMode == 1): 
+              J1jogNeg(float(incrementEntryField.get()))    
+            elif (mainMode == 1 and event.code == 'ABS_HAT0X' and event.state == -1 and jogMode == 1): 
+              J1jogPos(float(incrementEntryField.get()))
+            elif (mainMode == 1 and event.code == 'ABS_HAT0Y' and event.state == -1 and jogMode == 1): 
+              J2jogNeg(float(incrementEntryField.get()))    
+            elif (mainMode == 1 and event.code == 'ABS_HAT0Y' and event.state == 1 and jogMode == 1): 
+              J2jogPos(float(incrementEntryField.get()))           
+            elif (mainMode == 1 and event.code == 'ABS_HAT0Y' and event.state == -1 and jogMode == 2): 
+              J3jogNeg(float(incrementEntryField.get()))    
+            elif (mainMode == 1 and event.code == 'ABS_HAT0Y' and event.state == 1 and jogMode == 2): 
+              J3jogPos(float(incrementEntryField.get()))
+            elif (mainMode == 1 and event.code == 'ABS_HAT0X' and event.state == 1 and jogMode == 2): 
+              J4jogNeg(float(incrementEntryField.get()))    
+            elif (mainMode == 1 and event.code == 'ABS_HAT0X' and event.state == -1 and jogMode == 2): 
+              J4jogPos(float(incrementEntryField.get()))           
+            elif (mainMode == 1 and event.code == 'ABS_HAT0Y' and event.state == -1 and jogMode == 3): 
+              J5jogNeg(float(incrementEntryField.get()))    
+            elif (mainMode == 1 and event.code == 'ABS_HAT0Y' and event.state == 1 and jogMode == 3): 
+              J5jogPos(float(incrementEntryField.get()))
+            elif (mainMode == 1 and event.code == 'ABS_HAT0X' and event.state == 1 and jogMode == 3): 
+              J6jogNeg(float(incrementEntryField.get()))    
+            elif (mainMode == 1 and event.code == 'ABS_HAT0X' and event.state == -1 and jogMode == 3): 
+              J6jogPos(float(incrementEntryField.get()))                      
+          ##CARTESIAN DIR MODE
+            elif (event.code == 'BTN_SOUTH' and event.state == 1): 
+              if mainMode != 2:
+                mainMode = 2
+                jogMode = 1
+                almStatusLab.config(text='JOGGING X & Y AXIS', style="Warn.TLabel")
+                almStatusLab2.config(text='JOGGING X & Y AXIS', style="Warn.TLabel")
+              else:                
+                jogMode +=1        
+              if jogMode == 2:
+                almStatusLab.config(text='JOGGING Z AXIS', style="Warn.TLabel")
+                almStatusLab2.config(text='JOGGING Z AXIS', style="Warn.TLabel")
+              elif jogMode == 3:
+                jogMode = 1
+                almStatusLab.config(text='JOGGING X & Y AXIS', style="Warn.TLabel")
+                almStatusLab2.config(text='JOGGING X & Y AXIS', style="Warn.TLabel")
+            ##CARTESIAN DIR JOG
+            elif (mainMode == 2 and event.code == 'ABS_HAT0Y' and event.state == -1 and jogMode == 1): 
+              XjogNeg(float(incrementEntryField.get()))    
+            elif (mainMode == 2 and event.code == 'ABS_HAT0Y' and event.state == 1 and jogMode == 1): 
+              XjogPos(float(incrementEntryField.get()))
+            elif (mainMode == 2 and event.code == 'ABS_HAT0X' and event.state == 1 and jogMode == 1): 
+              YjogNeg(float(incrementEntryField.get()))    
+            elif (mainMode == 2 and event.code == 'ABS_HAT0X' and event.state == -1 and jogMode == 1): 
+              YjogPos(float(incrementEntryField.get()))           
+            elif (mainMode == 2 and event.code == 'ABS_HAT0Y' and event.state == 1 and jogMode == 2): 
+              ZjogNeg(float(incrementEntryField.get()))    
+            elif (mainMode == 2 and event.code == 'ABS_HAT0Y' and event.state == -1 and jogMode == 2): 
+              ZjogPos(float(incrementEntryField.get()))                          
+          ##CARTESIAN ORIENTATION MODE
+            elif (event.code == 'BTN_EAST' and event.state == 1): 
+              if mainMode != 3:
+                mainMode = 3
+                jogMode = 1
+                almStatusLab.config(text='JOGGING Rx & Ry AXIS', style="Warn.TLabel")
+                almStatusLab2.config(text='JOGGING Rx & Ry AXIS', style="Warn.TLabel")
+              else:                
+                jogMode +=1        
+              if jogMode == 2:
+                almStatusLab.config(text='JOGGING Rz AXIS', style="Warn.TLabel")
+                almStatusLab2.config(text='JOGGING Rz AXIS', style="Warn.TLabel")
+              elif jogMode == 3:
+                jogMode = 1
+                almStatusLab.config(text='JOGGING Rx & Ry AXIS', style="Warn.TLabel")
+                almStatusLab2.config(text='JOGGING Rx & Ry AXIS', style="Warn.TLabel")
+            ##CARTESIAN ORIENTATION JOG
+            elif (mainMode == 3 and event.code == 'ABS_HAT0X' and event.state == -1 and jogMode == 1): 
+              RxjogNeg(float(incrementEntryField.get()))    
+            elif (mainMode == 3 and event.code == 'ABS_HAT0X' and event.state == 1 and jogMode == 1): 
+              RxjogPos(float(incrementEntryField.get()))
+            elif (mainMode == 3 and event.code == 'ABS_HAT0Y' and event.state == 1 and jogMode == 1): 
+              RyjogNeg(float(incrementEntryField.get()))    
+            elif (mainMode == 3 and event.code == 'ABS_HAT0Y' and event.state == -1 and jogMode == 1): 
+              RyjogPos(float(incrementEntryField.get()))           
+            elif (mainMode == 3 and event.code == 'ABS_HAT0X' and event.state == 1 and jogMode == 2): 
+              RzjogNeg(float(incrementEntryField.get()))    
+            elif (mainMode == 3 and event.code == 'ABS_HAT0X' and event.state == -1 and jogMode == 2): 
+              RzjogPos(float(incrementEntryField.get()))
+            ##J7 MODE
+            elif (event.code == 'BTN_START' and event.state == 1): 
+              mainMode = 4
+              almStatusLab.config(text='JOGGING TRACK', style="Warn.TLabel")
+              almStatusLab2.config(text='JOGGING TRACK', style="Warn.TLabel")
+            ##TRACK JOG
+            elif (mainMode == 4 and event.code == 'ABS_HAT0X' and event.state == 1): 
+              J7jogPos(float(incrementEntryField.get()))    
+            elif (mainMode == 4 and event.code == 'ABS_HAT0X' and event.state == -1): 
+              J7jogNeg(float(incrementEntryField.get()))                   
+            ##TEACH POS          
+            elif (event.code == 'BTN_NORTH' and event.state == 1): 
+              teachInsertBelSelected()
+            ##GRIPPER         
+            elif (event.code == 'BTN_SELECT' and event.state == 1): 
+              if grip == 0:
+                grip = 1
+                outputNum = DO1offEntryField.get()
+                command = "OFX"+outputNum+"\n"
+                ser2.write(command.encode())
+                ser2.flushInput()
+                time.sleep(.1)
+                ser2.read() 
+              else:
+                grip = 0
+                outputNum = DO1onEntryField.get()
+                command = "ONX"+outputNum+"\n"
+                ser2.write(command.encode())
+                ser2.flushInput()
+                time.sleep(.1)
+                ser2.read()     
+                time.sleep(.1)
             else:
-                # CARTESIAN MODE (left-stick axis lock)
-                axL, dirL = _cart_left_locked(gp.sThumbLX, gp.sThumbLY)
-                axR, dirR = _stick_to_axis(gp.sThumbRX, gp.sThumbRY, DZ_RX, DZ_RY,
-                                           LPF_ALPHA_R, START_THR_R, STOP_THR_R, 'R')
+              pass   
+        except:
+        #else:
+          almStatusLab.config(text='XBOX CONTROLLER NOT RESPONDING', style="Alarm.TLabel")
+          almStatusLab2.config(text='XBOX CONTROLLER NOT RESPONDING', style="Alarm.TLabel")        
+    t = threading.Thread(target=threadxbox)
+    t.start()
 
-                # D-pad: Rx / Ry
-                dRx = (+1 if (buttons & DPAD_UP)    else -1 if (buttons & DPAD_DOWN) else 0)
-                dRy = (+1 if (buttons & DPAD_RIGHT) else -1 if (buttons & DPAD_LEFT) else 0)
+  def ChgDis(val):
+    curSpd = int(incrementEntryField.get())
+    if curSpd >=100 and val == 0:
+      curSpd = 100 
+    elif curSpd < 5 and val == 0:  
+      curSpd += 1
+    elif val == 0:
+      curSpd += 5   
+    if curSpd <=1 and val == 1:
+      curSpd = 1 
+    elif curSpd <= 5 and val == 1:  
+      curSpd -= 1
+    elif val == 1:
+      curSpd -= 5
+    elif val == 2:
+      curSpd = 5  
+    incrementEntryField.delete(0, 'end')
+    incrementEntryField.insert(0,str(curSpd))
 
-                intended_cart = None
-                if dRx != 0:
-                    intended_cart = ('Rx', dRx)
-                elif dRy != 0:
-                    intended_cart = ('Ry', dRy)
-                elif axL is not None:
-                    intended_cart = ('X', dirL) if axL == 'Y' else ('Y', -dirL)
-                elif axR is not None:
-                    intended_cart = ('Rz', dirR) if axR == 'X' else ('Z', dirR)
+    time.sleep(.3)  
 
-                _request_switch_cart(intended_cart)
+  def ChgSpd(val):
+    curSpd = int(speedEntryField.get())
+    if curSpd >=100 and val == 0:
+      curSpd = 100 
+    elif curSpd < 5 and val == 0:  
+      curSpd += 1
+    elif val == 0:
+      curSpd += 5   
+    if curSpd <=1 and val == 1:
+      curSpd = 1 
+    elif curSpd <= 5 and val == 1:  
+      curSpd -= 1
+    elif val == 1:
+      curSpd -= 5
+    elif val == 2:
+      curSpd = 5  
+    speedEntryField.delete(0, 'end')    
+    speedEntryField.insert(0,str(curSpd))  
 
-        _last_input_time = time.monotonic()
-        last_buttons = buttons
-        time.sleep(0.008)  # ~120 Hz
-
-# ---------- Public entry ----------
-def start_xbox():
-    threading.Thread(target=_poll_loop, daemon=True).start()
-    _lbl("Xbox ON / polling…", style="Warn.TLabel")
-
-
-
-
-
- 
 
 ##end xbox ###################################################################################################################################################
 
 def send_serial_command(cmd):
-    global progRunning, liveJog, sliderActive
+    global progRunning
     ser.write(cmd.encode())    
     ser.flushInput()
     time.sleep(0.1)
     response = str(ser.readline().strip(), 'utf-8')
     IncJogStatVal = int(IncJogStat.get())
-    if IncJogStatVal or progRunning or sliderActive:
+    if IncJogStatVal or progRunning:
       if response[:1] == 'E':
         ErrorHandler(response)
       else:
         displayPosition(response) 		
-    sliderActive = False 
+
 
 
 def start_send_serial_thread(command):
     global progRunning
     if serial_lock.locked():
-        print("Serial command already in progress — ignoring.")
+        logger.warning("Serial command already in progress — ignoring.")
         return
     t = threading.Thread(target=run_send_serial_safe, args=(command,), daemon=True)
     t.start()
@@ -4991,7 +5359,7 @@ def J9jogPos(value):
 
 def start_live_joint_jog_thread(command):
     if live_jog_lock.locked():
-        print("Jog thread already in progress — ignoring.")
+        logger.warning("Jog thread already in progress — ignoring.")
         return
 
     def thread_wrapper():
@@ -5023,6 +5391,9 @@ def LiveJointJog(value):
   DECspd = DECspeedField.get()
   ACCramp = ACCrampField.get()
   LoopMode = str(J1OpenLoopStat.get())+str(J2OpenLoopStat.get())+str(J3OpenLoopStat.get())+str(J4OpenLoopStat.get())+str(J5OpenLoopStat.get())+str(J6OpenLoopStat.get())
+  #!! WC isn't defined prior to use here, at least sometimes
+  WC = locals().get("WC", "")
+  ############
   command = "LJ"+"V"+str(value)+speedPrefix+Speed+"Ac"+ACCspd+"Dc"+DECspd+"Rm"+ACCramp+"W"+WC+"Lm"+LoopMode+"\n"
   start_live_joint_jog_thread(command)
   if not offlineMode:
@@ -5034,7 +5405,7 @@ def LiveJointJog(value):
 
 def start_live_cartesian_jog_thread(command):
     if live_cartesian_lock.locked():
-        print("Jog thread already in progress — ignoring.")
+        logger.warning("Jog thread already in progress — ignoring.")
         return
 
     def thread_wrapper():
@@ -5077,7 +5448,7 @@ def LiveCarJog(value):
 
 def start_live_tool_jog_thread(command):
     if live_tool_lock.locked():
-        print("Jog thread already in progress — ignoring.")
+        logger.warning("Jog thread already in progress — ignoring.")
         return
 
     def thread_wrapper():
@@ -5150,7 +5521,7 @@ def wait_until_all_locks_free(min_hold_time, timeout=120):
             stable_start = None  # reset stability window if any lock is active
 
         if now - start_time > timeout:
-            print("Timeout waiting for locks to be free.")
+            logger.warning("Timeout waiting for locks to be free.")
             return
 
         time.sleep(0.01)  # poll at 10ms intervals
@@ -5182,7 +5553,7 @@ def wait_until_virtual_locks_free(min_hold_time, timeout=5):
             stable_start = None  # reset stability window if any lock is active
 
         if now - start_time > timeout:
-            print("Timeout waiting for locks to be free.")
+            logger.warning("Timeout waiting for locks to be free.")
             return
 
         time.sleep(0.01)  # poll at 10ms intervals
@@ -6491,11 +6862,14 @@ def teachInsertBelSelected():
     tab1.progView.select_set(selRow)
     items = tab1.progView.get(0,END)
     file_path = path.relpath(ProgEntryField.get())
-    with open(file_path,'w', encoding='utf-8') as f:
-      for item in items:
-        f.write(str(item.strip(), encoding='utf-8'))
-        f.write('\n')
-      f.close()
+    try:
+      with open(file_path,'w', encoding='utf-8') as f:
+        for item in items:
+          f.write(str(item.strip(), encoding='utf-8'))
+          f.write('\n')
+        f.close()
+    except:
+      logger.error("No file specified")
   elif(movetype == "OFF PR "):
     movetype = movetype+" [ PR: "+str(SavePosEntryField.get())+" ] offs [ *PR: "+str(int(SavePosEntryField.get())+1)+" ] "
     newPos = movetype + " [*]"+" J7 "+str(J7PosCur)+" J8 "+str(J8PosCur)+" J9 "+str(J9PosCur)+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC
@@ -6528,7 +6902,7 @@ def teachInsertBelSelected():
         ("WC", WC),
     ]:
         if not isinstance(val, str):
-            print(f"{name} is not a string — it is {type(val)}: {val}")
+            logger.warning(f"{name} is not a string — it is {type(val)}: {val}")
     newPos = movetype + " [*] X "+XcurPos+" Y "+YcurPos+" Z "+ZcurPos+" Rz "+RzcurPos+" Ry "+RycurPos+" Rx "+RxcurPos+" J7 "+str(J7PosCur)+" J8 "+str(J8PosCur)+" J9 "+str(J9PosCur)+" "+speedPrefix+" "+Speed+" Ac "+ACCspd+ " Dc "+DECspd+" Rm "+ACCramp+" $ "+WC              
     tab1.progView.insert(selRow, bytes(newPos + '\n', 'utf-8')) 
     tab1.progView.selection_clear(0, END)
@@ -6843,14 +7217,15 @@ def waitTime():
   file_path = path.relpath(ProgEntryField.get())
   with open(file_path,'w', encoding='utf-8') as f:
     for item in items:
-  	  f.write(str(item.strip(), encoding='utf-8'))
-  	  f.write('\n')
+      f.write(str(item.strip(), encoding='utf-8'))
+      f.write('\n')
     f.close()
 
 
 
-
-def setOutputOn():
+#!! Appears Not to be used
+'''
+def setOutputOn(): #!! Is this used anywhere?
   try:
     selRow = tab1.progView.curselection()[0]
     selRow += 1
@@ -6867,10 +7242,13 @@ def setOutputOn():
   file_path = path.relpath(ProgEntryField.get())
   with open(file_path,'w', encoding='utf-8') as f:
     for item in items:
-  	  f.write(str(item.strip(), encoding='utf-8'))
-  	  f.write('\n')
+      f.write(str(item.strip(), encoding='utf-8'))
+      f.write('\n')
     f.close()
+'''
 
+#!! Appears Not to be used
+'''
 def setOutputOff():
   try:
     selRow = tab1.progView.curselection()[0]
@@ -6888,9 +7266,10 @@ def setOutputOff():
   file_path = path.relpath(ProgEntryField.get())
   with open(file_path,'w', encoding='utf-8') as f:
     for item in items:
-  	  f.write(str(item.strip(), encoding='utf-8'))
-  	  f.write('\n')
+      f.write(str(item.strip(), encoding='utf-8'))
+      f.write('\n')
     f.close()
+'''
 
 def tabNumber():
   try:
@@ -6909,8 +7288,8 @@ def tabNumber():
   file_path = path.relpath(ProgEntryField.get())
   with open(file_path,'w', encoding='utf-8') as f:
     for item in items:
-  	  f.write(str(item.strip(), encoding='utf-8'))
-  	  f.write('\n')
+      f.write(str(item.strip(), encoding='utf-8'))
+      f.write('\n')
     f.close()
 
 def jumpTab():
@@ -6930,8 +7309,8 @@ def jumpTab():
   file_path = path.relpath(ProgEntryField.get())
   with open(file_path,'w', encoding='utf-8') as f:
     for item in items:
-  	  f.write(str(item.strip(), encoding='utf-8'))
-  	  f.write('\n')
+      f.write(str(item.strip(), encoding='utf-8'))
+      f.write('\n')
     f.close()
  
 def cameraOn():
@@ -6950,8 +7329,8 @@ def cameraOn():
   file_path = path.relpath(ProgEntryField.get())
   with open(file_path,'w', encoding='utf-8') as f:
     for item in items:
-  	  f.write(str(item.strip(), encoding='utf-8'))
-  	  f.write('\n')
+      f.write(str(item.strip(), encoding='utf-8'))
+      f.write('\n')
     f.close()
 
 def cameraOff():
@@ -6970,8 +7349,8 @@ def cameraOff():
   file_path = path.relpath(ProgEntryField.get())
   with open(file_path,'w', encoding='utf-8') as f:
     for item in items:
-  	  f.write(str(item.strip(), encoding='utf-8'))
-  	  f.write('\n')
+      f.write(str(item.strip(), encoding='utf-8'))
+      f.write('\n')
     f.close()
 
 
@@ -7197,8 +7576,8 @@ def ReadAuxCom():
   file_path = path.relpath(ProgEntryField.get())
   with open(file_path,'w', encoding='utf-8') as f:
     for item in items:
-  	  f.write(str(item.strip(), encoding='utf-8'))
-  	  f.write('\n')
+      f.write(str(item.strip(), encoding='utf-8'))
+      f.write('\n')
     f.close()
 
 
@@ -7239,8 +7618,8 @@ def Servo():
   file_path = path.relpath(ProgEntryField.get())
   with open(file_path,'w', encoding='utf-8') as f:
     for item in items:
-  	  f.write(str(item.strip(), encoding='utf-8'))
-  	  f.write('\n')
+      f.write(str(item.strip(), encoding='utf-8'))
+      f.write('\n')
     f.close()
 
 def loadProg():
@@ -7313,8 +7692,8 @@ def insertCallProg():
   file_path = path.relpath(ProgEntryField.get())
   with open(file_path,'w', encoding='utf-8') as f:
     for item in items:
-  	  f.write(str(item.strip(), encoding='utf-8'))
-  	  f.write('\n')
+      f.write(str(item.strip(), encoding='utf-8'))
+      f.write('\n')
     f.close()
 
 def insertGCprog():  
@@ -7334,8 +7713,8 @@ def insertGCprog():
   file_path = path.relpath(ProgEntryField.get())
   with open(file_path,'w', encoding='utf-8') as f:
     for item in items:
-  	  f.write(str(item.strip(), encoding='utf-8'))
-  	  f.write('\n')
+      f.write(str(item.strip(), encoding='utf-8'))
+      f.write('\n')
     f.close()    
 
     
@@ -7356,8 +7735,8 @@ def insertReturn():
   file_path = path.relpath(ProgEntryField.get())
   with open(file_path,'w', encoding='utf-8') as f:
     for item in items:
-  	  f.write(str(item.strip(), encoding='utf-8'))
-  	  f.write('\n')
+      f.write(str(item.strip(), encoding='utf-8'))
+      f.write('\n')
     f.close()
 
 
@@ -7410,11 +7789,12 @@ def insertvisFind():
   file_path = path.relpath(ProgEntryField.get())
   with open(file_path,'w', encoding='utf-8') as f:
     for item in items:
-  	  f.write(str(item.strip(), encoding='utf-8'))
-  	  f.write('\n')
+      f.write(str(item.strip(), encoding='utf-8'))
+      f.write('\n')
     f.close()
 
-
+#!! Appears not to be used
+'''
 def IfRegjumpTab():
   try:
     selRow = tab1.progView.curselection()[0]
@@ -7434,9 +7814,10 @@ def IfRegjumpTab():
   file_path = path.relpath(ProgEntryField.get())
   with open(file_path,'w', encoding='utf-8') as f:
     for item in items:
-  	  f.write(str(item.strip(), encoding='utf-8'))
-  	  f.write('\n')
+      f.write(str(item.strip(), encoding='utf-8'))
+      f.write('\n')
     f.close()
+'''
 
 def insertRegister():  
   try:
@@ -7456,8 +7837,8 @@ def insertRegister():
   file_path = path.relpath(ProgEntryField.get())
   with open(file_path,'w', encoding='utf-8') as f:
     for item in items:
-  	  f.write(str(item.strip(), encoding='utf-8'))
-  	  f.write('\n')
+      f.write(str(item.strip(), encoding='utf-8'))
+      f.write('\n')
     f.close()
   
 def storPos():
@@ -7479,8 +7860,8 @@ def storPos():
   file_path = path.relpath(ProgEntryField.get())
   with open(file_path,'w', encoding='utf-8') as f:
     for item in items:
-  	  f.write(str(item.strip(), encoding='utf-8'))
-  	  f.write('\n')
+      f.write(str(item.strip(), encoding='utf-8'))
+      f.write('\n')
     f.close()
   
 def insCalibrate():  
@@ -7499,8 +7880,8 @@ def insCalibrate():
   file_path = path.relpath(ProgEntryField.get())
   with open(file_path,'w', encoding='utf-8') as f:
     for item in items:
-  	  f.write(str(item.strip(), encoding='utf-8'))
-  	  f.write('\n')
+      f.write(str(item.strip(), encoding='utf-8'))
+      f.write('\n')
     f.close()
 
 def progViewselect(e):
@@ -7699,7 +8080,9 @@ def DO6off():
   ser2.flushInput()
   time.sleep(.1)
   ser2.read() 
-  
+
+#!! Appears not to be used
+'''
 def TestString():
   message = testSendEntryField.get()
   command = "TM"+message+"\n"
@@ -7709,10 +8092,14 @@ def TestString():
   echo = ser.readline()
   testRecEntryField.delete(0, 'end')
   testRecEntryField.insert(0,echo)  
+'''
 
+#!! Appears not to be used
+'''
 def ClearTestString():
   testRecEntryField.delete(0, 'end')
-  
+'''
+
 def CalcLinDist(X2,Y2,Z2):
   global XcurPos
   global YcurPos
@@ -8975,7 +9362,7 @@ def SaveAndApplyCalibration():
     time.sleep(.1)
     calExtAxis()
   except:
-    print("no serial connection with Teensy board")  
+    logger.error("no serial connection with Teensy board")  
   savePosData()
 
 def savePosData():
@@ -9019,7 +9406,9 @@ def savePosData():
   calibration.insert(END, RzcurPos)
   calibration.insert(END, RycurPos)
   calibration.insert(END, RxcurPos)
-  calibration.insert(END, comPortEntryField.get())  
+  # Need the updted field value
+  #calibration.insert(END, comPortEntryField.get())
+  calibration.insert(END, com1SelectedValue.get())
   calibration.insert(END, ProgEntryField.get())
   calibration.insert(END, servo0onEntryField.get())
   calibration.insert(END, servo0offEntryField.get())
@@ -9060,7 +9449,9 @@ def savePosData():
   calibration.insert(END, J4OpenLoopVal)
   calibration.insert(END, J5OpenLoopVal)
   calibration.insert(END, J6OpenLoopVal)
-  calibration.insert(END, com2PortEntryField.get())  
+  # Need the updted field value
+  #calibration.insert(END, com2PortEntryField.get())
+  calibration.insert(END, com2SelectedValue.get())  
   calibration.insert(END, curTheme)
   calibration.insert(END, J1CalStatVal)
   calibration.insert(END, J2CalStatVal)
@@ -10197,10 +10588,10 @@ def updateVisOp():
   Visoptmenu.place(x=390, y=52)
   Visoptmenu.bind("<<ComboboxSelected>>", VisOpUpdate)
 
-def VisOpUpdate(event):
+def VisOpUpdate(foo):
   global selectedTemplate
   file = selectedTemplate.get()
-  print(file)
+  logger.info(file)
   img = cv2.imread(file, cv2.IMREAD_COLOR)
   img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  
 
@@ -10235,7 +10626,7 @@ def zeroBrCn():
   #VisZoomSlide.set(50)
   take_pic()
 
-def VisUpdateBriCon(event):
+def VisUpdateBriCon(foo):
   take_pic()  
 
   
@@ -10976,21 +11367,16 @@ J1posLimLab = Label(J1jogFrame, font=("Arial", 8), text = str(J1PosLim), style="
 J1posLimLab.place(x=270, y=25)
 J1slidelabel = Label(J1jogFrame)
 J1slidelabel.place(x=190, y=25)
-def J1sliderUpdate(event):
-  J1slidelabel.config(text=round(float(J1jogslide.get()),2))
-def J1sliderExecute(event):
-  global sliderActive
-  sliderActive = True
+def J1sliderUpdate(foo):
+  J1slidelabel.config(text=round(float(J1jogslide.get()),2))   
+def J1sliderExecute(foo): 
   J1delta = float(J1jogslide.get()) - float(J1curAngEntryField.get())
   if (J1delta < 0):
     J1jogNeg(abs(J1delta))
   else:
-    J1jogPos(abs(J1delta))
-    
+    J1jogPos(abs(J1delta))       
 J1jogslide = Scale(J1jogFrame, from_=-J1NegLim, to=J1PosLim,  length=180, orient=HORIZONTAL,  command=J1sliderUpdate)
 J1jogslide.bind("<ButtonRelease-1>", J1sliderExecute)
-
-
 J1jogslide.place(x=115, y=7)
 
 ##J2
@@ -11026,11 +11412,9 @@ J2posLimLab = Label(J2jogFrame, font=("Arial", 8), text = str(J2PosLim), style="
 J2posLimLab.place(x=270, y=25)
 J2slidelabel = Label(J2jogFrame)
 J2slidelabel.place(x=190, y=25)
-def J2sliderUpdate(event):
+def J2sliderUpdate(foo):
   J2slidelabel.config(text=round(float(J2jogslide.get()),2))   
-def J2sliderExecute(event):
-  global sliderActive
-  sliderActive = True 
+def J2sliderExecute(foo): 
   J2delta = float(J2jogslide.get()) - float(J2curAngEntryField.get())
   if (J2delta < 0):
     J2jogNeg(abs(J2delta))
@@ -11073,11 +11457,9 @@ J3posLimLab = Label(J3jogFrame, font=("Arial", 8), text = str(J3PosLim), style="
 J3posLimLab.place(x=270, y=25)
 J3slidelabel = Label(J3jogFrame)
 J3slidelabel.place(x=190, y=25)
-def J3sliderUpdate(event):
+def J3sliderUpdate(foo):
   J3slidelabel.config(text=round(float(J3jogslide.get()),2))   
-def J3sliderExecute(event):
-  global sliderActive
-  sliderActive = True 
+def J3sliderExecute(foo): 
   J3delta = float(J3jogslide.get()) - float(J3curAngEntryField.get())
   if (J3delta < 0):
     J3jogNeg(abs(J3delta))
@@ -11120,11 +11502,9 @@ J4posLimLab = Label(J4jogFrame, font=("Arial", 8), text = str(J4PosLim), style="
 J4posLimLab.place(x=270, y=25)
 J4slidelabel = Label(J4jogFrame)
 J4slidelabel.place(x=190, y=25)
-def J4sliderUpdate(event):
+def J4sliderUpdate(foo):
   J4slidelabel.config(text=round(float(J4jogslide.get()),2))   
-def J4sliderExecute(event):
-  global sliderActive
-  sliderActive = True 
+def J4sliderExecute(foo): 
   J4delta = float(J4jogslide.get()) - float(J4curAngEntryField.get())
   if (J4delta < 0):
     J4jogNeg(abs(J4delta))
@@ -11167,11 +11547,9 @@ J5posLimLab = Label(J5jogFrame, font=("Arial", 8), text = str(J5PosLim), style="
 J5posLimLab.place(x=270, y=25)
 J5slidelabel = Label(J5jogFrame)
 J5slidelabel.place(x=190, y=25)
-def J5sliderUpdate(event):
+def J5sliderUpdate(foo):
   J5slidelabel.config(text=round(float(J5jogslide.get()),2))   
-def J5sliderExecute(event):
-  global sliderActive
-  sliderActive = True 
+def J5sliderExecute(foo): 
   J5delta = float(J5jogslide.get()) - float(J5curAngEntryField.get())
   if (J5delta < 0):
     J5jogNeg(abs(J5delta))
@@ -11214,11 +11592,9 @@ J6posLimLab = Label(J6jogFrame, font=("Arial", 8), text = str(J6PosLim), style="
 J6posLimLab.place(x=270, y=25)
 J6slidelabel = Label(J6jogFrame)
 J6slidelabel.place(x=190, y=25)
-def J6sliderUpdate(event):
+def J6sliderUpdate(foo):
   J6slidelabel.config(text=round(float(J6jogslide.get()),2))   
-def J6sliderExecute(event):
-  global sliderActive
-  sliderActive = True 
+def J6sliderExecute(foo): 
   J6delta = float(J6jogslide.get()) - float(J6curAngEntryField.get())
   if (J6delta < 0):
     J6jogNeg(abs(J6delta))
@@ -11265,11 +11641,9 @@ J7posLimLab = Label(J7jogFrame, font=("Arial", 8), text = str(J7PosLim), style="
 J7posLimLab.place(x=110, y=30)
 J7slideLimLab = Label(J7jogFrame)
 J7slideLimLab.place(x=60, y=70)
-def J7sliderUpdate(event):
+def J7sliderUpdate(foo):
   J7slideLimLab.config(text=round(float(J7jogslide.get()),2))   
-def J7sliderExecute(event):
-  global sliderActive
-  sliderActive = True 
+def J7sliderExecute(foo): 
   J7delta = float(J7jogslide.get()) - float(J7curAngEntryField.get())
   if (J7delta < 0):
     J7jogNeg(abs(J7delta))
@@ -11313,11 +11687,9 @@ J8posLimLab = Label(J8jogFrame, font=("Arial", 8), text = str(J8PosLim), style="
 J8posLimLab.place(x=110, y=30)
 J8slideLimLab = Label(J8jogFrame)
 J8slideLimLab.place(x=60, y=70)
-def J8sliderUpdate(event):
+def J8sliderUpdate(foo):
   J8slideLimLab.config(text=round(float(J8jogslide.get()),2))   
-def J8sliderExecute(event):
-  global sliderActive
-  sliderActive = True 
+def J8sliderExecute(foo): 
   J8delta = float(J8jogslide.get()) - float(J8curAngEntryField.get())
   if (J8delta < 0):
     J8jogNeg(abs(J8delta))
@@ -11361,11 +11733,9 @@ J9posLimLab = Label(J9jogFrame, font=("Arial", 8), text = str(J9PosLim), style="
 J9posLimLab.place(x=110, y=30)
 J9slideLimLab = Label(J9jogFrame)
 J9slideLimLab.place(x=60, y=70)
-def J9sliderUpdate(event):
+def J9sliderUpdate(foo):
   J9slideLimLab.config(text=round(float(J9jogslide.get()),2))   
-def J9sliderExecute(event):
-  global sliderActive
-  sliderActive = True 
+def J9sliderExecute(foo): 
   J9delta = float(J9jogslide.get()) - float(J9curAngEntryField.get())
   if (J9delta < 0):
     J9jogNeg(abs(J9delta))
@@ -11823,7 +12193,11 @@ playPhoto=PhotoImage(file="play-icon.png")
 runProgBut.config(image=playPhoto)
 runProgBut.place(x=20, y=80)
 
-xboxBut = Button(tab1,  command = start_xbox)
+if CE['Platform']['IS_WINDOWS']: # Use old Xbox method if not on Windows
+  xboxBut = Button(tab1,  command = start_xbox)
+else:
+  xboxBut = Button(tab1,  command = xbox)
+
 xboxPhoto=PhotoImage(file="xbox.png")
 xboxBut.config(image=xboxPhoto)
 xboxBut.place(x=700, y=40)
@@ -12269,11 +12643,42 @@ ThemeLab.place(x=920, y=60)
 ### 2 BUTTONS################################################################
 #############################################################################
 
-comPortBut = Button(tab2,  text="  Set Com Teensy  ",   command = setCom)
-comPortBut.place(x=85, y=110)
+#############################################################################
+# Switching comport entry fields to self-populating dropdowns
 
-comPortBut2 = Button(tab2,  text="Set Com IO Board",   command = setCom2)
-comPortBut2.place(x=85, y=180)
+#comPortBut = Button(tab2,  text="  Set Com Teensy  ",   command = setCom)
+#comPortBut.place(x=85, y=110)
+
+
+def detect_ports():
+  # Imporve to actually query and detect boards on found com ports
+
+  ports = list(list_ports.comports())
+  choices = [p.device for p in ports]
+
+  if 'comPort' in locals() and comPort not in ("", None):
+    port1_default = comPort
+  else:
+    port1_default = None
+
+  if 'com2Port' in locals() and com2Port not in ("", None):
+    port2_default = com2Port
+  else:
+    port2_default = None
+
+  return choices, port1_default, port2_default
+
+port_choices, default_comport1, default_comport2 = detect_ports()
+
+logger.debug(f"Available Comm Ports: {port_choices}")
+
+com1SelectedValue = tk.StringVar(value=default_comport1)
+com1Select = tk.OptionMenu(tab2, com1SelectedValue, *port_choices, command = setCom)
+com1Select.place(x=75, y=110)
+
+com2SelectedValue = tk.StringVar(value=default_comport2)
+com2Select = tk.OptionMenu(tab2, com2SelectedValue, *port_choices, command = setCom2)
+com2Select.place(x=75, y=180)
 
 lightBut = Button(tab2,  text="  Light  ",  command = lightTheme)
 lightBut.place(x=890, y=90)
@@ -12417,11 +12822,11 @@ saveCalBut.place(x=1150, y=630)
 #############################################################################
 
 
-comPortEntryField = Entry(tab2,width=4,justify="center")
-comPortEntryField.place(x=50, y=114)
+#comPortEntryField = Entry(tab2,width=4,justify="center")
+#comPortEntryField.place(x=50, y=114)
 
-com2PortEntryField = Entry(tab2,width=4,justify="center")
-com2PortEntryField.place(x=50, y=184)
+#com2PortEntryField = Entry(tab2,width=4,justify="center")
+#com2PortEntryField.place(x=50, y=184)
 
 
 cmdSentEntryField = Entry(tab2,width=95,justify="center")
@@ -13757,13 +14162,6 @@ SP_16_E6_EntryField.place(x=600, y=480)
 
 
 
-
-
-
-
-
-
-
 ####################################################################################################################################################
 ####################################################################################################################################################
 ####################################################################################################################################################
@@ -13776,14 +14174,12 @@ SP_16_E6_EntryField.place(x=600, y=480)
 #############################################################################
 
 
-
 #VisBackdropImg = ImageTk.PhotoImage(Image.open('VisBackdrop.png'))
 
 VisBackdropImg = Image.open("VisBackdrop.png")
 VisBackdropTk = ImageTk.PhotoImage(VisBackdropImg)
 VisBackdromLbl = Label(tab6, image = VisBackdropTk)
 VisBackdromLbl.place(x=15, y=215)
-
 
 
 #cap= cv2.VideoCapture(0)
@@ -13807,7 +14203,6 @@ live_lbl = Label(live_frame)
 live_lbl.place(x=0, y=0)
 
 
-
 template_frame = Frame(tab6,width=120,height=150)
 template_frame.place(x=575, y=50)
 
@@ -13827,22 +14222,41 @@ CalValuesLab.place(x=900, y=30)
 ### 6 BUTTONS################################################################
 #############################################################################
 
-graph = FilterGraph()
-try:
-  camList = graph.get_input_devices()
-except:
-  camList = ["Select a Camera"]
-visoptions=StringVar(tab6)
-visoptions.set("Select a Camera")
-try:
-  vismenu=OptionMenu(tab6, visoptions, camList[0], *camList)
-  vismenu.config(width=20)
-  vismenu.place(x=10, y=10)
-except: 
-  print ("no camera")
+match CE['Platform']['OS']:
+  case "Windows":
+    graph = FilterGraph()
+    try:
+      camList = graph.get_input_devices()
+    except:
+      camList = ["Select a Camera"]
+    visoptions=StringVar(tab6)
+    visoptions.set("Select a Camera")
+    try:
+      vismenu=OptionMenu(tab6, visoptions, camList[0], *camList)
+      vismenu.config(width=20)
+      vismenu.place(x=10, y=10)
+    except: 
+      logger.error ("no camera")
+  case "Linux":
+    # Build label->id map
+    label_to_id = {c.label: c.id for c in CE['Cameras']['Enum']}
+    camList = list(label_to_id.keys())
 
+    selected_label = tk.StringVar(value=(camList[0] if camList else "Select a Camera"))
+
+    visoptions=StringVar(tab6)
+    visoptions.set("Select a Camera")
+
+    def on_camera_select(chosen_label):
+      cam_id = label_to_id.get(chosen_label, "None")
+      logger.debug("Debug - User picked:", chosen_label, " -> using id:", cam_id)
  
-
+    try:
+      vismenu=OptionMenu(tab6, visoptions, selected_label.get(), *camList, command=on_camera_select)
+      vismenu.config(width=20)
+      vismenu.place(x=10, y=10)
+    except: 
+      logger.error ("no camera")
 
 
 StartCamBut = Button(tab6,  text="Start Camera",  width=12, command = start_vid)
@@ -14100,7 +14514,7 @@ def GCcallback(event):
       else:
           GcodeFilenameField.insert(0,"")  
     except:
-      print("not an SD file")
+      logger.error("not an SD file")
       
 tab7.gcodeView.bind("<<ListboxSelect>>", GCcallback)
 
@@ -14263,7 +14677,9 @@ ZcurPos     =calibration.get("8")
 RxcurPos    =calibration.get("9")
 RycurPos    =calibration.get("10")
 RzcurPos    =calibration.get("11")
-comPort     =calibration.get("12")
+#comPort     =calibration.get("12")
+if calibration.get("12") in port_choices:
+  com1SelectedValue.set(calibration.get("12"))
 Prog        =calibration.get("13")
 Servo0on    =calibration.get("14")
 Servo0off   =calibration.get("15")
@@ -14304,7 +14720,9 @@ J3OpenLoopVal=calibration.get("49")
 J4OpenLoopVal=calibration.get("50")
 J5OpenLoopVal=calibration.get("51")
 J6OpenLoopVal=calibration.get("52")
-com2Port     =calibration.get("53")
+#com2Port     =calibration.get("53")
+if calibration.get("53") in port_choices:
+  com2SelectedValue.set(calibration.get("53"))
 curTheme     =calibration.get("54")
 J1CalStatVal= calibration.get("55")
 J2CalStatVal= calibration.get("56")
@@ -14448,11 +14866,12 @@ J9CalStatVal2= calibration.get("193")
 setColor      =calibration.get("194")
 
 
-
-####  
-
-comPortEntryField.insert(0,str(comPort))
-com2PortEntryField.insert(0,str(com2Port))
+#print(f"DEBUG: setting com1Selected Value to: {str(comPort)} comPort is of type {str(type(comPort))}")
+#print(f"DEBUG: setting com2Selected Value to: {str(com2Port)} com2Port is of type {str(type(com2Port))}")
+#com1SelectedValue.set(value=str(comPort))
+#com2SelectedValue.set(value=str(com2Port))
+#comPortEntryField.insert(0,str(comPort))
+#com2PortEntryField.insert(0,str(com2Port))
 incrementEntryField.insert(0,"10")
 speedEntryField.insert(0,"25")
 ACCspeedField.insert(0,"15")
@@ -14842,14 +15261,9 @@ Copyright © 2022 by Annin Robotics. All Rights Reserved"
 xboxUse = 0
 
 
-
-
 tab1.after(100, setCom)
 
 tab1.mainloop()
-
-
-
 
 
 
