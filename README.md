@@ -1,7 +1,7 @@
 # 🤖 AR4-MK3 Control Software  
 **Version 6.3.0 – January 2025**
 
-![AR4 Logo](Control%20Software/AR.png)
+![AR4 Logo](AR.png)
 
 The **Annin Robotics AR4-MK3 Control Software** is the official open-source, non-commercial desktop application for controlling the AR4 six-axis robotic arm.  
 It provides real-time joint and Cartesian control, calibration utilities, teach-mode programming, and integration with the AR4-MK3 firmware running on a Teensy 4.1 controller.
