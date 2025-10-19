@@ -5,6 +5,10 @@ import subprocess
 from pathlib import Path
 from dataclasses import dataclass, asdict
 from typing import List, Dict, Any
+import logging
+
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.NOTSET) # Inherit level from Parent
 
 @dataclass
 class CameraEntry:
@@ -15,7 +19,7 @@ class CameraEntry:
     def __str__(self) -> str:
         return f"{self.kind} | {self.label} -> {self.id}"
 
-class AR_Configuration(object):
+class AR4_Configuration(object):
     def __init__(self):
         super().__init__()
         self.Environment = {}                                   # Operating Enviroment related config variables
@@ -26,21 +30,26 @@ class AR_Configuration(object):
         self.Environment['Platform']['IS_DARWIN'] = False
         self.Environment['Platform']['IS_RPI'] = False
         self.Environment['Platform']['IS_SUPPORTED'] = False
+        self.Environment['Platform']['IS_HEADLESS'] = False
 
         self.Environment['Cameras'] = {}                        # Camera Realted Variables
         self.Environment['Cameras']['HAS_CSI_CAMERA'] = False
         self.Environment['Cameras']['HAS_USB_CAMERA'] = False
-        self.Environment['Cameras']['Enum'] = [] # List of enumerated cameras for selection
+        self.Environment['Cameras']['Enum'] = []                # List of enumerated cameras for selection
+
+        self.Calibration = {}                                   # Calibration Related Variables
+        self.RuntimeState = {}                                  # Runtime Related Variables
 
         self._detect_platform()
         self._enumerate_cameras()
 
-        print(f"Debug - OS Platform is: {self.Environment['Platform']['OS']}")
-        print(f"Debug - Raspberry Pi Detected!") if self.Environment['Platform']['IS_RPI'] else None
-        print(f"Debug - CSI Camera Detected!") if self.Environment['Cameras']['HAS_CSI_CAMERA'] else None
-        print(f"Debug - USB Camera Detected!") if self.Environment['Cameras']['HAS_USB_CAMERA'] else None
-        print(f"Debug - Detected Cameras: {self.Environment['Cameras']['Enum']}")
-        print(f"Debug - Supported Platform: {str(self.Environment['Platform']['IS_SUPPORTED'])}")
+        logger.debug(f"OS Platform is: {self.Environment['Platform']['OS']}")
+        logger.debug(f"Raspberry Pi Detected!") if self.Environment['Platform']['IS_RPI'] else None
+        logger.debug(f"CSI Camera Detected!") if self.Environment['Cameras']['HAS_CSI_CAMERA'] else None
+        logger.debug(f"USB Camera Detected!") if self.Environment['Cameras']['HAS_USB_CAMERA'] else None
+        logger.debug(f"Detected Cameras: {self.Environment['Cameras']['Enum']}")
+        logger.debug(f"Supported Platform: {str(self.Environment['Platform']['IS_SUPPORTED'])}")
+        logger.debug(f"Headless Platform: {str(self.Environment['Platform']['IS_HEADLESS'])}")
 
     def _detect_platform(self) -> None:
         self.Environment['Platform']['OS'] = platform.system()
@@ -48,6 +57,7 @@ class AR_Configuration(object):
             case "Linux":
                 if self._is_raspberry_pi():
                     self.Environment['Platform']['IS_RPI'] = True
+                    self.Environment['Platform']['IS_HEADLESS'] = self._rpi_is_headless()
                     if self._supported_debian_version():
                         self.Environment['Platform']['IS_SUPPORTED'] = True
                         if self._has_csi_camera():
@@ -71,7 +81,7 @@ class AR_Configuration(object):
 
     def _has_csi_camera(self) -> bool:
         if not shutil.which("rpicam-hello"):
-            print("Debug - rpicam-hello not found, please install the rpicam-utils package")
+            logger.debug("Debug - rpicam-hello not found, please install the rpicam-utils package")
         try:
             out = subprocess.check_output(
                 ["rpicam-hello", "--list-cameras"], 
@@ -90,7 +100,7 @@ class AR_Configuration(object):
         match self.Environment['Platform']['OS']:
             case "Linux":
                 if not shutil.which("v4l2-ctl"):
-                    print("Debug - v4l2-ctl not found, please install the v4l-utils package")
+                    logger.debug("Debug - v4l2-ctl not found, please install the v4l-utils package")
                 try:
                     out = subprocess.check_output(
                         ["v4l2-ctl", "--list-devices"], 
@@ -116,7 +126,7 @@ class AR_Configuration(object):
             if version >= 12:
                 return True
             else:
-                print(f"Debug - Unsupported Debian version: {version}")
+                logger.debug(f"Debug - Unsupported Debian version: {version}")
                 return False
         except Exception as e:
             return False
@@ -153,7 +163,7 @@ class AR_Configuration(object):
         Assumes rpicam-hello is present (per your requirement).
         """
         if not shutil.which("rpicam-hello"):
-            print("Debug - rpicam-hello not found, please install the rpicam-utils package")
+            logger.debug("Debug - rpicam-hello not found, please install the rpicam-utils package")
             return []
 
         try:
@@ -193,7 +203,7 @@ class AR_Configuration(object):
         entries: List[CameraEntry] = []
 
         if not shutil.which("v4l2-ctl"):
-            print("Debug - v4l2-ctl not found, please install the v4l-utils package")
+            logger.debug("Debug - v4l2-ctl not found, please install the v4l-utils package")
             return []
         else:
             try:
@@ -254,5 +264,42 @@ class AR_Configuration(object):
                 id=first_dev,
             )
         ]
+    
+    def _rpi_is_headless(self) -> bool:
+        """
+        Check all DRM HDMI interfaces under /sys/class/drm.
+        Returns True if *no* HDMI connectors are reported as 'connected'.
+        Returns False if *any* HDMI connector is 'connected'.
+        """
+        try:
+            drm_root = "/sys/class/drm"
+            if not os.path.isdir(drm_root):
+                return True  # No DRM subsystem → treat as headless
+
+            for entry in os.listdir(drm_root):
+                if "HDMI" not in entry:
+                    continue
+
+                status_path = os.path.join(drm_root, entry, "status")
+                if not os.path.isfile(status_path):
+                    continue
+
+                try:
+                    with open(status_path) as f:
+                        status = f.read().strip()
+                    if status == "connected":
+                        return False  # At least one HDMI connected
+                except OSError:
+                    # Ignore unreadable entries
+                    continue
+            logger.debug("No connected HDMI interfaces found - Device is Headless.")
+            return True  # No connected HDMI found / Running headless
+        except Exception as e:
+            logger.error(f"Error checking HDMI status: {e}")
+            return False  # On error, assume not headless
+
+
+
+
 
 
