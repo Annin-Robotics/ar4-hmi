@@ -91,10 +91,13 @@ Thumbs.db
 # ----------------
 
 !robot_kinematics*.so
+!robot_kinematics*
 
 # ----------------
 # AR4 specific files to exclude
 # ----------------
-
 ErrorLog
 ARbot.cal
+ARconfig.json
+ARbot.cal.bak
+custom.json

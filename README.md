@@ -33,6 +33,8 @@ This repository contains:
 | **Python** | 3.11 – 3.12 |
 | **Libraries** | `tkinter`, `ttkbootstrap`, `pyserial`, `vtk`, `numpy`, `pandas`, `pybind11` |
 | **Hardware** | Teensy 4.1 controller + AR4-MK3 robot |
+| **Linux** | sudo apt-get install wmctrl |
+
 
 ---
 

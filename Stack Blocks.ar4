@@ -1,0 +1,55 @@
+##BEGINNING OF PROGRAM##
+##zero out both position registers Z height before proceeding
+Position Register 3 Element 3 = 0
+Position Register 1 Element 3 = 0
+##open gripper
+Out On = 8
+##set stacking position
+Position Register 2 Element 1 = 397.537
+Position Register 2 Element 2 = -228.705
+Position Register 2 Element 3 = 51.311
+Position Register 2 Element 4 = 176.093
+Position Register 2 Element 5 = 1.297
+Position Register 2 Element 6 = -179.865
+##start camera test
+Cam On
+##move to home position
+Move R [*] J1 0 J2 0 J3 0 J4 0 J5 90 J6 0 J7 0 J8 0 J9 0 Sp 25 Ac 10 Dc 10 Rm 100 $ N
+##PROGRAM LOOP STARTS HERE AT TAB 2
+Tab Number 2
+Wait Time = .5
+##query camera to find block
+Vis Find - Block.jpg - BGcolor (Auto) Score 85 Pass 1 Fail 2
+Tab Number 1
+##set position register Z height to be at a position above the block
+Position Register 1 Element 3 = 30
+##move above the block
+Move Vis [ PR: 1 ] [*] X 390.156 Y 4.967 Z 50.809 Rz 175.945 Ry 1.069 Rx -179.948 J7 0.0 J8 0.0 J9 0.0 Sp 40 Ac 20 Dc 20 Rm 100 $ F
+##set Z heigh back to zero to go to the pick height
+Position Register 1 Element 3 = 0
+##move over the block
+Move Vis [ PR: 1 ] [*] X 390.156 Y 4.967 Z 50.809 Rz 175.945 Ry 1.069 Rx -179.948 J7 0.0 J8 0.0 J9 0.0 Sp 10 Ac 20 Dc 20 Rm 100 $ F
+##close gripper
+Out Off = 8
+Wait Time = .3
+## move up
+Position Register 1 Element 3 = 30
+Move Vis [ PR: 1 ] [*] X 390.156 Y 4.967 Z 50.809 Rz 175.945 Ry 1.069 Rx -179.948 J7 0.0 J8 0.0 J9 0.0 Sp 20 Ac 20 Dc 20 Rm 100 $ F
+##STACK BLOCK##
+##set PR 3 z height to 14mm higher to come over the stack
+Position Register 3 Element 3 = 14
+OFF PR  [ PR: 2 ] offs [ *PR: 3 ]  [*] J7 0.0 J8 0.0 J9 0.0 Sp 20 Ac 20 Dc 20 Rm 100 $ F
+##set z height to zero to come down to stack
+Position Register 3 Element 3 = 0
+OFF PR  [ PR: 2 ] offs [ *PR: 3 ]  [*] J7 0.0 J8 0.0 J9 0.0 Sp 20 Ac 20 Dc 20 Rm 100 $ F
+##open gripper
+Out On = 8
+Wait Time = .3
+##set z height back up to move away
+Position Register 3 Element 3 = 14
+OFF PR  [ PR: 2 ] offs [ *PR: 3 ]  [*] J7 0.0 J8 0.0 J9 0.0 Sp 20 Ac 20 Dc 20 Rm 100 $ F
+##increase PR 2 z height by block thickness so next placement is 1 block higher
+Position Register 2 Element 3 = ++14
+##move to home position
+Move R [*] J1 0 J2 0 J3 0 J4 0 J5 90 J6 0 J7 0 J8 0 J9 0 Sp 40 Ac 20 Dc 20 Rm 100 $ N
+Jump Tab-2
