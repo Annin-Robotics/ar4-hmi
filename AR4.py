@@ -147,7 +147,7 @@ from tkinter import *
 # Import ttkbootstrap widgets to replace ttk widgets
 import ttkbootstrap as ttk_bootstrap
 from ttkbootstrap import Style as BootstrapStyle
-from ttkbootstrap import *  # This makes ttkbootstrap widgets available globally
+#from ttkbootstrap import *  # This makes ttkbootstrap widgets available globally
 from tkinter import simpledialog, messagebox
 import tkinter as tk
 from tkinter import ttk, Misc
@@ -2098,7 +2098,7 @@ def startup_spinner(root, message="Please wait…"):
     # Use same icon as main window
     #win.iconbitmap(r'AR.png')
     win.iconphoto(True, tk.PhotoImage(file="AR.png"))
-    ttk.Label(win, text=message, padding=12).pack()
+    ttk_bootstrap.Label(win, text=message, padding=12).pack()
     pb = ttk.Progressbar(win, mode="indeterminate", length=220)
     pb.pack(padx=12, pady=(0, 12))
     pb.start(12)
@@ -2114,13 +2114,18 @@ def startup_spinner(root, message="Please wait…"):
 
 
 def startup_with_spinner(root, timeout=10.0):
+    logger.debug("Starting startup_with_spinner with a %.1fs timeout.", timeout)
     spinner, pb = startup_spinner(root, "Please Wait.. System Starting")
     q = Queue()
 
     def worker():
         try:
-            q.put(startup())
+            logger.info("Worker thread started. Calling startup()...")
+            result = startup()
+            q.put(result)
+            logger.info("startup() completed successfully.")
         except Exception as e:
+            logger.exception("Worker thread caught an exception during startup()")
             q.put(e)
 
     Thread(target=worker, daemon=True).start()
@@ -2211,15 +2216,19 @@ def setCom(misc=None):  # Requires an input parameter for element use / it's unu
     pickle.dump(value, open("ErrorLog", "wb"))
 
   except Exception as e:
+
+    logger.error(
+        "UNABLE TO ESTABLISH COMMUNICATIONS WITH TEENSY 4.1 CONTROLLER",
+        exc_info=True
+    )
     # Ensure the port is closed on ANY failure after open
     try:
       if 'ser' in globals() and ser and getattr(ser, "is_open", False):
         RUN['ser'].close()
         time.sleep(0.2)
-    except Exception:
-      pass
+    except Exception as e_close:
+      logger.error("Failed to close serial port after initial communication failure.", exc_info=True)
 
-    # logger.exception("UNABLE TO ESTABLISH COMMUNICATIONS WITH TEENSY 4.1 CONTROLLER")
     # logger.exception raises a new unhandled exception instead of just logging the issue
     logger.error("UNABLE TO ESTABLISH COMMUNICATIONS WITH TEENSY 4.1 CONTROLLER")
     
@@ -2230,8 +2239,8 @@ def setCom(misc=None):  # Requires an input parameter for element use / it's unu
     try:
       value = tab8.ElogView.get(0, END)
       pickle.dump(value, open("ErrorLog", "wb"))
-    except Exception:
-      pass
+    except Exception as e_pickle:
+      logger.error("Failed to persist log view to file 'ErrorLog'.", exc_info=True)
 
 
 def setCom2(misc=None): # Requires and input parameter for element use / its unused
@@ -4853,7 +4862,7 @@ def J1jogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -4889,7 +4898,7 @@ def J1jogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -4925,7 +4934,7 @@ def J2jogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -4962,7 +4971,7 @@ def J2jogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -4997,7 +5006,7 @@ def J3jogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5032,7 +5041,7 @@ def J3jogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5067,7 +5076,7 @@ def J4jogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5102,7 +5111,7 @@ def J4jogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5137,7 +5146,7 @@ def J5jogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5172,7 +5181,7 @@ def J5jogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5207,7 +5216,7 @@ def J6jogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5242,7 +5251,7 @@ def J6jogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5278,7 +5287,7 @@ def J7jogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5314,7 +5323,7 @@ def J7jogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5352,7 +5361,7 @@ def J8jogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5390,7 +5399,7 @@ def J8jogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5427,7 +5436,7 @@ def J9jogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5465,7 +5474,7 @@ def J9jogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5514,7 +5523,7 @@ def LiveJointJog(value):
     speedEntryField.delete(0, 'end')
     speedEntryField.insert(0,"25")
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5561,7 +5570,7 @@ def LiveCarJog(value):
     speedEntryField.delete(0, 'end')
     speedEntryField.insert(0,"25")
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5606,7 +5615,7 @@ def LiveToolJog(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5733,7 +5742,7 @@ def J7jogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5769,7 +5778,7 @@ def J7jogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5806,7 +5815,7 @@ def J8jogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5842,7 +5851,7 @@ def J8jogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5880,7 +5889,7 @@ def J9jogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5916,7 +5925,7 @@ def J9jogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -5954,7 +5963,7 @@ def XjogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6009,7 +6018,7 @@ def YjogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6064,7 +6073,7 @@ def ZjogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6115,7 +6124,7 @@ def RxjogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6167,7 +6176,7 @@ def RyjogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6218,7 +6227,7 @@ def RzjogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6269,7 +6278,7 @@ def XjogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6320,7 +6329,7 @@ def YjogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6372,7 +6381,7 @@ def ZjogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6424,7 +6433,7 @@ def RxjogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6475,7 +6484,7 @@ def RyjogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6526,7 +6535,7 @@ def RzjogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6581,7 +6590,7 @@ def TXjogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6613,7 +6622,7 @@ def TYjogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6644,7 +6653,7 @@ def TZjogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6678,7 +6687,7 @@ def TRxjogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6709,7 +6718,7 @@ def TRyjogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6740,7 +6749,7 @@ def TRzjogNeg(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6771,7 +6780,7 @@ def TXjogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6802,7 +6811,7 @@ def TYjogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6833,7 +6842,7 @@ def TZjogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6864,7 +6873,7 @@ def TRxjogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6895,7 +6904,7 @@ def TRyjogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6926,7 +6935,7 @@ def TRzjogPos(value):
   if(speedtype == "Seconds"):
     speedPrefix = "Ss"
   #percent
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"   
   Speed = speedEntryField.get() 
   ACCspd = ACCspeedField.get()
@@ -6963,7 +6972,7 @@ def teachInsertBelSelected():
     speedPrefix = "Ss"
   if(speedtype == "mm per Sec"):
     speedPrefix = "Sm" 
-  if(speedtype == "Percent"):
+  else:
     speedPrefix = "Sp"    
   ACCspd = ACCspeedField.get()
   DECspd = DECspeedField.get()
@@ -9549,7 +9558,7 @@ def checkSpeedVals():
     if(Speed <= .001):
       speedEntryField.delete(0, 'end')
       speedEntryField.insert(0,"1")
-  if(speedtype == "Percent"):
+  else:
     if(Speed <= .01 or Speed > 100):
       speedEntryField.delete(0, 'end')
       speedEntryField.insert(0,"10")
@@ -11164,7 +11173,7 @@ tab1.grid_columnconfigure(2, weight=0, minsize=800)  # Right panel - fixed minim
 # ============================================================================
 # LEFT PANEL - Program Controls
 # ============================================================================
-leftPanel = Frame(tab1, relief="raised", borderwidth=1)
+leftPanel = ttk_bootstrap.Frame(tab1, relief="raised", borderwidth=1)
 leftPanel.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
 
 # Configure left panel grid
@@ -11173,7 +11182,7 @@ leftPanel.grid_columnconfigure(0, weight=1)
 leftPanel.grid_columnconfigure(1, weight=1)
 
 # Row 0: Program label and entry (with more top padding)
-ProgLab = Label(leftPanel, text="Program:")
+ProgLab = ttk_bootstrap.Label(leftPanel, text="Program:")
 ProgLab.grid(row=0, column=0, sticky="w", padx=5, pady=(8, 2))
 
 ProgEntryField = Entry(leftPanel, width=15, justify="center")
@@ -11195,19 +11204,19 @@ incrementEntryField = Entry(leftPanel, width=6, justify="center")
 incrementEntryField.grid(row=3, column=1, sticky="ew", padx=5, pady=2)
 
 # Row 4: Current Row
-curRowLab = Label(leftPanel, text="Current Row:")
+curRowLab = ttk_bootstrap.Label(leftPanel, text="Current Row:")
 curRowLab.grid(row=4, column=0, sticky="w", padx=5, pady=2)
 
 curRowEntryField = Entry(leftPanel, width=6, justify="center")
 curRowEntryField.grid(row=4, column=1, sticky="ew", padx=5, pady=2)
 
 # Row 5: Motion controls frame (with Xbox button at bottom)
-speedFrame = LabelFrame(leftPanel, text="Motion", padding=5)
+speedFrame = ttk_bootstrap.Labelframe(leftPanel, text="Motion", padding=5)
 speedFrame.grid(row=5, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
 
 speedFrame.grid_columnconfigure(1, weight=1)
 
-speedLab = Label(speedFrame, text="Speed")
+speedLab = ttk_bootstrap.Label(speedFrame, text="Speed")
 speedLab.grid(row=0, column=0, sticky="w", padx=2, pady=1)
 
 speedEntryField = Entry(speedFrame, width=4, justify="center")
@@ -11216,37 +11225,37 @@ speedEntryField.grid(row=0, column=1, sticky="ew", padx=2, pady=1)
 speedOptionMenu = OptionMenu(speedFrame, speedOption, "Percent", "Percent", "Seconds", "mm per Sec")
 speedOptionMenu.grid(row=0, column=2, sticky="ew", padx=2, pady=1)
 
-ACCLab = Label(speedFrame, text="Acceleration")
+ACCLab = ttk_bootstrap.Label(speedFrame, text="Acceleration")
 ACCLab.grid(row=1, column=0, sticky="w", padx=2, pady=1)
 
 ACCspeedField = Entry(speedFrame, width=4, justify="center")
 ACCspeedField.grid(row=1, column=1, sticky="ew", padx=2, pady=1)
 
-Label(speedFrame, text="%").grid(row=1, column=2, sticky="w", padx=2)
+ttk_bootstrap.Label(speedFrame, text="%").grid(row=1, column=2, sticky="w", padx=2)
 
-DECLab = Label(speedFrame, text="Deceleration")
+DECLab = ttk_bootstrap.Label(speedFrame, text="Deceleration")
 DECLab.grid(row=2, column=0, sticky="w", padx=2, pady=1)
 
 DECspeedField = Entry(speedFrame, width=4, justify="center")
 DECspeedField.grid(row=2, column=1, sticky="ew", padx=2, pady=1)
 
-Label(speedFrame, text="%").grid(row=2, column=2, sticky="w", padx=2)
+ttk_bootstrap.Label(speedFrame, text="%").grid(row=2, column=2, sticky="w", padx=2)
 
-RampLab = Label(speedFrame, text="Ramp")
+RampLab = ttk_bootstrap.Label(speedFrame, text="Ramp")
 RampLab.grid(row=3, column=0, sticky="w", padx=2, pady=1)
 
 ACCrampField = Entry(speedFrame, width=4, justify="center")
 ACCrampField.grid(row=3, column=1, sticky="ew", padx=2, pady=1)
 
-Label(speedFrame, text="%").grid(row=3, column=2, sticky="w", padx=2)
+ttk_bootstrap.Label(speedFrame, text="%").grid(row=3, column=2, sticky="w", padx=2)
 
-RoundLab = Label(speedFrame, text="Rounding")
+RoundLab = ttk_bootstrap.Label(speedFrame, text="Rounding")
 RoundLab.grid(row=4, column=0, sticky="w", padx=2, pady=1)
 
 roundEntryField = Entry(speedFrame, width=4, justify="center")
 roundEntryField.grid(row=4, column=1, sticky="ew", padx=2, pady=1)
 
-Label(speedFrame, text="mm").grid(row=4, column=2, sticky="w", padx=2)
+ttk_bootstrap.Label(speedFrame, text="mm").grid(row=4, column=2, sticky="w", padx=2)
 
 # Xbox button at bottom of Motion frame (centered)
 if CE['Platform']['IS_WINDOWS']:
@@ -11258,7 +11267,7 @@ xboxBut.config(image=xboxPhoto)
 xboxBut.grid(row=5, column=0, columnspan=3, pady=(5, 0))
 
 # Row 6: Virtual controls frame
-virtualFrame = LabelFrame(leftPanel, text="Virtual", padding=5)
+virtualFrame = ttk_bootstrap.Labelframe(leftPanel, text="Virtual", padding=5)
 virtualFrame.grid(row=6, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
 
 virtualFrame.grid_columnconfigure(0, weight=1)
@@ -11269,7 +11278,7 @@ virtRobBut.grid(row=0, column=0, sticky="ew", padx=2, pady=2)
 offline_button = ttk.Button(virtualFrame, text="Run Offline", width=20, command=toggle_offline_mode, style="Online.TButton")
 offline_button.grid(row=1, column=0, sticky="ew", padx=2, pady=2)
 # Row 7: Position Commands frame
-posFrame = LabelFrame(leftPanel, text="Position Commands", padding=5)
+posFrame = ttk_bootstrap.Labelframe(leftPanel, text="Position Commands", padding=5)
 posFrame.grid(row=7, column=0, columnspan=2, sticky="new", padx=5, pady=(2, 5))
 
 posFrame.grid_columnconfigure(0, weight=1)
@@ -11299,7 +11308,7 @@ CalibrateBut = autoCalBut  # Alias for compatibility
 autoCalBut.grid(row=6, column=0, sticky="ew", padx=2, pady=2)
 
 # Row 8: Vision container
-visionFrame = LabelFrame(leftPanel, text="Vision", padding=5)
+visionFrame = ttk_bootstrap.Labelframe(leftPanel, text="Vision", padding=5)
 visionFrame.grid(row=8, column=0, columnspan=2, sticky="ew", padx=5, pady=(2, 5))
 
 visionFrame.grid_columnconfigure(0, weight=1)
@@ -11319,8 +11328,8 @@ visFindBut = ttk.Button(visionFrame, text="Vision Find", command=insertvisFind)
 visFindBut.grid(row=1, column=0, columnspan=2, sticky="ew", padx=2, pady=(5, 2))
 
 # Row 2: Pass Tab and Fail Tab labels
-Label(visionFrame, text="Pass Tab", font=("Arial", 8)).grid(row=2, column=0, sticky="e", padx=(2, 1))
-Label(visionFrame, text="Fail Tab", font=("Arial", 8)).grid(row=2, column=1, sticky="w", padx=(1, 2))
+ttk_bootstrap.Label(visionFrame, text="Pass Tab", font=("Arial", 8)).grid(row=2, column=0, sticky="e", padx=(2, 1))
+ttk_bootstrap.Label(visionFrame, text="Fail Tab", font=("Arial", 8)).grid(row=2, column=1, sticky="w", padx=(1, 2))
 
 # Row 3: Pass Tab and Fail Tab entry fields
 visPassEntryField = Entry(visionFrame, width=6, justify="center")
@@ -11336,7 +11345,7 @@ VisBacColorEntryField.insert(0, "116, 116, 116")  # Default background color
 VisScoreEntryField.insert(0, "85")  # Default score threshold
 
 # Row 9: Wait container
-waitContainer = LabelFrame(leftPanel, text="Wait", padding=5)
+waitContainer = ttk_bootstrap.Labelframe(leftPanel, text="Wait", padding=5)
 waitContainer.grid(row=9, column=0, columnspan=2, sticky="ew", padx=5, pady=(2, 5))
 
 waitContainer.grid_columnconfigure(0, weight=1)
@@ -11351,7 +11360,7 @@ waitSecField.grid(row=0, column=1, sticky="w", padx=2, pady=2)
 # ============================================================================
 # CENTER PANEL - Program Display and Controls
 # ============================================================================
-centerPanel = Frame(tab1)
+centerPanel = ttk_bootstrap.Frame(tab1)
 centerPanel.grid(row=0, column=1, sticky="nsew", padx=2, pady=2)
 
 # Configure center panel grid
@@ -11365,14 +11374,14 @@ centerPanel.grid_rowconfigure(6, weight=0)  # Bottom buttons
 centerPanel.grid_columnconfigure(0, weight=1)
 
 # Row 0: Status message
-runStatusLab = Label(centerPanel, text="SYSTEM STARTING - PLEASE WAIT", font=("Arial", 10, "bold"), style="OK.TLabel")
+runStatusLab = ttk_bootstrap.Label(centerPanel, text="SYSTEM STARTING - PLEASE WAIT", font=("Arial", 10, "bold"), style="OK.TLabel")
 runStatusLab.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
 
 # Create alias for compatibility with existing code
 almStatusLab = runStatusLab
 
 # Row 0.5: Play controls
-playFrame = Frame(centerPanel)
+playFrame = ttk_bootstrap.Frame(centerPanel)
 playFrame.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
 
 for i in range(4):
@@ -11412,7 +11421,7 @@ else:
 stopBut.grid(row=0, column=3, sticky="nsew", padx=2, pady=0)
 
 # Row 2: Program view with scrollbar
-progframe = Frame(centerPanel, relief="sunken", borderwidth=1)
+progframe = ttk_bootstrap.Frame(centerPanel, relief="sunken", borderwidth=1)
 progframe.grid(row=2, column=0, sticky="nsew", padx=5, pady=5)
 
 scrollbar = Scrollbar(progframe)
@@ -11425,7 +11434,7 @@ tab1.progView.pack(side=LEFT, fill=BOTH, expand=True)
 scrollbar.config(command=tab1.progView.yview)
 
 # Row 3: Manual Program Entry
-manEntryFrame = LabelFrame(centerPanel, text="Manual Program Entry", padding=5)
+manEntryFrame = ttk_bootstrap.Labelframe(centerPanel, text="Manual Program Entry", padding=5)
 manEntryFrame.grid(row=3, column=0, sticky="ew", padx=5, pady=5)
 
 # Configure equal width columns for buttons
@@ -11463,7 +11472,7 @@ reloadBut.grid(row=1, column=4, sticky="ew", padx=2, pady=2)
 # ============================================================================
 # RIGHT PANEL - Joint and Cartesian Controls
 # ============================================================================
-rightPanel = Frame(tab1)
+rightPanel = ttk_bootstrap.Frame(tab1)
 rightPanel.grid(row=0, column=2, sticky="nsew", padx=2, pady=2)
 
 # Configure right panel grid
@@ -11480,7 +11489,7 @@ rightPanel.grid_columnconfigure(0, weight=1)
 rightPanel.grid_columnconfigure(1, weight=1)
 
 # Joint controls container (J1-J6)
-jointFrame = LabelFrame(rightPanel, text="Joint Control (J1-J6)", padding=5)
+jointFrame = ttk_bootstrap.Labelframe(rightPanel, text="Joint Control (J1-J6)", padding=5)
 jointFrame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
 
 jointFrame.grid_columnconfigure(0, weight=1)
@@ -11489,7 +11498,7 @@ jointFrame.grid_columnconfigure(1, weight=1)
 # Helper function to create joint control widgets
 def create_joint_jog_frame(parent, row, col, joint_name, joint_num):
     """Create a joint jog control frame with label, entry, buttons, and slider"""
-    frame = Frame(parent)
+    frame = ttk_bootstrap.Frame(parent)
     frame.grid(row=row, column=col, sticky="ew", padx=2, pady=2)
     
     # Configure internal grid
@@ -11500,7 +11509,7 @@ def create_joint_jog_frame(parent, row, col, joint_name, joint_num):
     frame.grid_columnconfigure(4, weight=0)  # Pos button
     
     # Joint label
-    lab = Label(frame, font=("Arial", 14), text=joint_name)
+    lab = ttk_bootstrap.Label(frame, font=("Arial", 14), text=joint_name)
     lab.grid(row=0, column=0, padx=2)
     
     # Current angle entry
@@ -11520,13 +11529,13 @@ def create_joint_jog_frame(parent, row, col, joint_name, joint_num):
     pos_but.grid(row=0, column=4, padx=2)
     
     # Limit labels (second row)
-    neg_lim_lab = Label(frame, font=("Arial", 8), text="-170", style="Jointlim.TLabel")
+    neg_lim_lab = ttk_bootstrap.Label(frame, font=("Arial", 8), text="-170", style="Jointlim.TLabel")
     neg_lim_lab.grid(row=1, column=2, sticky="w")
     
-    pos_lim_lab = Label(frame, font=("Arial", 8), text="170", style="Jointlim.TLabel")
+    pos_lim_lab = ttk_bootstrap.Label(frame, font=("Arial", 8), text="170", style="Jointlim.TLabel")
     pos_lim_lab.grid(row=1, column=4, sticky="e")
     
-    slide_label = Label(frame, font=("Arial", 8))
+    slide_label = ttk_bootstrap.Label(frame, font=("Arial", 8))
     slide_label.grid(row=1, column=3)
     
     return frame, entry, neg_but, pos_but, slider, slide_label, neg_lim_lab, pos_lim_lab
@@ -11726,7 +11735,7 @@ J6jogslide.config(command=J6sliderUpdate)
 J6jogslide.bind("<ButtonRelease-1>", J6sliderExecute)
 
 # Cartesian jog controls
-CartjogFrame = LabelFrame(rightPanel, text="Cartesian Control (X Y Z Rz Ry Rx)", padding=5)
+CartjogFrame = ttk_bootstrap.Labelframe(rightPanel, text="Cartesian Control (X Y Z Rz Ry Rx)", padding=5)
 CartjogFrame.grid(row=1, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
 
 CartjogFrame.grid_columnconfigure(0, weight=1)
@@ -11740,10 +11749,10 @@ CartjogFrame.grid_columnconfigure(5, weight=1)
 # Helper function for tool frame controls (no entry field)
 def create_tool_control(parent, row, col, label_text):
     """Create a tool jog control column with horizontal buttons (no entry field)"""
-    Label(parent, font=("Arial", 14), text=label_text).grid(row=row, column=col, pady=2)
+    ttk_bootstrap.Label(parent, font=("Arial", 14), text=label_text).grid(row=row, column=col, pady=2)
     
     # Create frame for horizontal button layout
-    button_frame = Frame(parent)
+    button_frame = ttk_bootstrap.Frame(parent)
     button_frame.grid(row=row+1, column=col, pady=2)
     
     neg_but = Button(button_frame, text="-", width=3)
@@ -11757,13 +11766,13 @@ def create_tool_control(parent, row, col, label_text):
 # Helper function for cartesian controls
 def create_cart_control(parent, row, col, label_text):
     """Create a cartesian jog control column with horizontal buttons"""
-    Label(parent, font=("Arial", 14), text=label_text).grid(row=row, column=col, pady=2)
+    ttk_bootstrap.Label(parent, font=("Arial", 14), text=label_text).grid(row=row, column=col, pady=2)
     
     entry = Entry(parent, width=6, justify="center")
     entry.grid(row=row+1, column=col, pady=2)
     
     # Create frame for horizontal button layout
-    button_frame = Frame(parent)
+    button_frame = ttk_bootstrap.Frame(parent)
     button_frame.grid(row=row+2, column=col, pady=2)
     
     neg_but = Button(button_frame, text="-", width=3)
@@ -11892,7 +11901,7 @@ RxjogPosBut.bind("<ButtonPress>", SelRxjogPos)
 RxjogPosBut.bind("<ButtonRelease>", StopJog)
 
 # Tool frame controls
-TooljogFrame = LabelFrame(rightPanel, text="Tool Frame Control (Tx Ty Tz Trz Try Trx)", padding=5)
+TooljogFrame = ttk_bootstrap.Labelframe(rightPanel, text="Tool Frame Control (Tx Ty Tz Trz Try Trx)", padding=5)
 TooljogFrame.grid(row=2, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
 
 TooljogFrame.grid_columnconfigure(0, weight=1)
@@ -11905,10 +11914,10 @@ TooljogFrame.grid_columnconfigure(5, weight=1)
 # Helper function for tool frame controls (buttons only, no entry fields)
 def create_tool_control(parent, col, label_text):
     """Create a tool frame jog control with label and horizontal buttons (no entry field)"""
-    Label(parent, font=("Arial", 14), text=label_text).grid(row=0, column=col, pady=2)
+    ttk_bootstrap.Label(parent, font=("Arial", 14), text=label_text).grid(row=0, column=col, pady=2)
     
     # Create frame for horizontal button layout
-    button_frame = Frame(parent)
+    button_frame = ttk_bootstrap.Frame(parent)
     button_frame.grid(row=1, column=col, pady=2)
     
     neg_but = Button(button_frame, text="-", width=3)
@@ -12038,7 +12047,7 @@ TRxjogPosBut.bind("<ButtonRelease>", StopJog)
 
 
 # Extra axes (J7, J8, J9)
-extraAxesFrame = LabelFrame(rightPanel, text="Additional Axes", padding=5)
+extraAxesFrame = ttk_bootstrap.Labelframe(rightPanel, text="Additional Axes", padding=5)
 extraAxesFrame.grid(row=7, column=0, columnspan=2, sticky="ew", padx=5, pady=5)
 
 extraAxesFrame.grid_columnconfigure(0, weight=1)
@@ -12046,28 +12055,28 @@ extraAxesFrame.grid_columnconfigure(1, weight=1)
 extraAxesFrame.grid_columnconfigure(2, weight=1)
 
 # J7 Frame
-J7jogFrame = Frame(extraAxesFrame, relief="raised", borderwidth=1, padding=5)
+J7jogFrame = ttk_bootstrap.Frame(extraAxesFrame, relief="raised", borderwidth=1, padding=5)
 J7jogFrame.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
 
 J7jogFrame.grid_columnconfigure(0, weight=1)
 J7jogFrame.grid_columnconfigure(1, weight=0)
 J7jogFrame.grid_columnconfigure(2, weight=1)
 
-J7Lab = Label(J7jogFrame, font=("Arial", 12), text="7th Axis")
+J7Lab = ttk_bootstrap.Label(J7jogFrame, font=("Arial", 12), text="7th Axis")
 J7Lab.grid(row=0, column=0, columnspan=3, pady=2)
 
-J7negLimLab = Label(J7jogFrame, font=("Arial", 8), text="0.00", style="Jointlim.TLabel")
+J7negLimLab = ttk_bootstrap.Label(J7jogFrame, font=("Arial", 8), text="0.00", style="Jointlim.TLabel")
 J7negLimLab.grid(row=1, column=0, sticky="w", padx=2)
 J7curAngEntryField = Entry(J7jogFrame, width=8, justify="center")
 J7curAngEntryField.grid(row=1, column=1, padx=5)
-J7posLimLab = Label(J7jogFrame, font=("Arial", 8), text="0", style="Jointlim.TLabel")
+J7posLimLab = ttk_bootstrap.Label(J7jogFrame, font=("Arial", 8), text="0", style="Jointlim.TLabel")
 J7posLimLab.grid(row=1, column=2, sticky="e", padx=2)
 
 J7jogslide = Scale(J7jogFrame, from_=0, to=0, orient=HORIZONTAL, length=120)
 J7jogslide.grid(row=2, column=0, columnspan=3, sticky="ew", padx=2, pady=2)
 
 # Create frame for button layout (- entry +)
-J7buttonFrame = Frame(J7jogFrame)
+J7buttonFrame = ttk_bootstrap.Frame(J7jogFrame)
 J7buttonFrame.grid(row=3, column=0, columnspan=3, sticky="ew", padx=2, pady=2)
 
 J7buttonFrame.grid_columnconfigure(0, weight=1)
@@ -12117,28 +12126,28 @@ J7jogslide.config(command=J7sliderUpdate)
 J7jogslide.bind("<ButtonRelease-1>", J7sliderExecute)
 
 # J8 Frame
-J8jogFrame = Frame(extraAxesFrame, relief="raised", borderwidth=1, padding=5)
+J8jogFrame = ttk_bootstrap.Frame(extraAxesFrame, relief="raised", borderwidth=1, padding=5)
 J8jogFrame.grid(row=0, column=1, sticky="nsew", padx=2, pady=2)
 
 J8jogFrame.grid_columnconfigure(0, weight=1)
 J8jogFrame.grid_columnconfigure(1, weight=0)
 J8jogFrame.grid_columnconfigure(2, weight=1)
 
-J8Lab = Label(J8jogFrame, font=("Arial", 12), text="8th Axis")
+J8Lab = ttk_bootstrap.Label(J8jogFrame, font=("Arial", 12), text="8th Axis")
 J8Lab.grid(row=0, column=0, columnspan=3, pady=2)
 
-J8negLimLab = Label(J8jogFrame, font=("Arial", 8), text="0.00", style="Jointlim.TLabel")
+J8negLimLab = ttk_bootstrap.Label(J8jogFrame, font=("Arial", 8), text="0.00", style="Jointlim.TLabel")
 J8negLimLab.grid(row=1, column=0, sticky="w", padx=2)
 J8curAngEntryField = Entry(J8jogFrame, width=8, justify="center")
 J8curAngEntryField.grid(row=1, column=1, padx=5)
-J8posLimLab = Label(J8jogFrame, font=("Arial", 8), text="0", style="Jointlim.TLabel")
+J8posLimLab = ttk_bootstrap.Label(J8jogFrame, font=("Arial", 8), text="0", style="Jointlim.TLabel")
 J8posLimLab.grid(row=1, column=2, sticky="e", padx=2)
 
 J8jogslide = Scale(J8jogFrame, from_=0, to=0, orient=HORIZONTAL, length=120)
 J8jogslide.grid(row=2, column=0, columnspan=3, sticky="ew", padx=2, pady=2)
 
 # Create frame for button layout (- entry +)
-J8buttonFrame = Frame(J8jogFrame)
+J8buttonFrame = ttk_bootstrap.Frame(J8jogFrame)
 J8buttonFrame.grid(row=3, column=0, columnspan=3, sticky="ew", padx=2, pady=2)
 
 J8buttonFrame.grid_columnconfigure(0, weight=1)
@@ -12188,28 +12197,28 @@ J8jogslide.config(command=J8sliderUpdate)
 J8jogslide.bind("<ButtonRelease-1>", J8sliderExecute)
 
 # J9 Frame
-J9jogFrame = Frame(extraAxesFrame, relief="raised", borderwidth=1, padding=5)
+J9jogFrame = ttk_bootstrap.Frame(extraAxesFrame, relief="raised", borderwidth=1, padding=5)
 J9jogFrame.grid(row=0, column=2, sticky="nsew", padx=2, pady=2)
 
 J9jogFrame.grid_columnconfigure(0, weight=1)
 J9jogFrame.grid_columnconfigure(1, weight=0)
 J9jogFrame.grid_columnconfigure(2, weight=1)
 
-J9Lab = Label(J9jogFrame, font=("Arial", 12), text="9th Axis")
+J9Lab = ttk_bootstrap.Label(J9jogFrame, font=("Arial", 12), text="9th Axis")
 J9Lab.grid(row=0, column=0, columnspan=3, pady=2)
 
-J9negLimLab = Label(J9jogFrame, font=("Arial", 8), text="0.00", style="Jointlim.TLabel")
+J9negLimLab = ttk_bootstrap.Label(J9jogFrame, font=("Arial", 8), text="0.00", style="Jointlim.TLabel")
 J9negLimLab.grid(row=1, column=0, sticky="w", padx=2)
 J9curAngEntryField = Entry(J9jogFrame, width=8, justify="center")
 J9curAngEntryField.grid(row=1, column=1, padx=5)
-J9posLimLab = Label(J9jogFrame, font=("Arial", 8), text="0", style="Jointlim.TLabel")
+J9posLimLab = ttk_bootstrap.Label(J9jogFrame, font=("Arial", 8), text="0", style="Jointlim.TLabel")
 J9posLimLab.grid(row=1, column=2, sticky="e", padx=2)
 
 J9jogslide = Scale(J9jogFrame, from_=0, to=0, orient=HORIZONTAL, length=120)
 J9jogslide.grid(row=2, column=0, columnspan=3, sticky="ew", padx=2, pady=2)
 
 # Create frame for button layout (- entry +)
-J9buttonFrame = Frame(J9jogFrame)
+J9buttonFrame = ttk_bootstrap.Frame(J9jogFrame)
 J9buttonFrame.grid(row=3, column=0, columnspan=3, sticky="ew", padx=2, pady=2)
 
 J9buttonFrame.grid_columnconfigure(0, weight=1)
@@ -12259,7 +12268,7 @@ J9jogslide.config(command=J9sliderUpdate)
 J9jogslide.bind("<ButtonRelease-1>", J9sliderExecute)
 
 # Command builders (IF, SET, WAIT - reordered and aligned)
-cmdFrame = LabelFrame(rightPanel, text="Command Builders", padding=5)
+cmdFrame = ttk_bootstrap.Labelframe(rightPanel, text="Command Builders", padding=5)
 cmdFrame.grid(row=3, column=0, columnspan=2, sticky="ew", padx=5, pady=(5, 2))
 
 # Configure columns for proper alignment
@@ -12284,7 +12293,7 @@ setoption = StringVar(cmdFrame)
 setoption.set("5v Output")
 
 # Row 0: IF command - IF [Type] [Var#] = [Value] [Action] [Dest] • [Insert]
-Label(cmdFrame, text="IF", font=("Arial", 10, "bold")).grid(row=0, column=0, sticky="w", padx=(2, 5), pady=2)
+ttk_bootstrap.Label(cmdFrame, text="IF", font=("Arial", 10, "bold")).grid(row=0, column=0, sticky="w", padx=(2, 5), pady=2)
 
 iFmenu = OptionMenu(cmdFrame, iFoption, "5v Input", "5v Input", "Register", "COM Device", "MB Coil", "MB Input", "MB Hold Reg", "MB Input Reg")
 iFmenu.config(width=12)
@@ -12293,7 +12302,7 @@ iFmenu.grid(row=0, column=1, sticky="ew", padx=2, pady=2)
 IfVarEntryField = Entry(cmdFrame, width=6, justify="center")
 IfVarEntryField.grid(row=0, column=2, sticky="ew", padx=2, pady=2)
 
-Label(cmdFrame, text="=").grid(row=0, column=3, padx=2)
+ttk_bootstrap.Label(cmdFrame, text="=").grid(row=0, column=3, padx=2)
 
 IfInputEntryField = Entry(cmdFrame, width=6, justify="center")
 IfInputEntryField.grid(row=0, column=4, sticky="ew", padx=2, pady=2)
@@ -12305,13 +12314,13 @@ iFSelmenu.grid(row=0, column=5, sticky="ew", padx=2, pady=2)
 IfDestEntryField = Entry(cmdFrame, width=8, justify="center")
 IfDestEntryField.grid(row=0, column=6, sticky="ew", padx=2, pady=2)
 
-Label(cmdFrame, text="•").grid(row=0, column=7, padx=2)
+ttk_bootstrap.Label(cmdFrame, text="•").grid(row=0, column=7, padx=2)
 
 insertIFBut = ttk.Button(cmdFrame, text="Insert IF CMD", command=IfCMDInsert)
 insertIFBut.grid(row=0, column=8, sticky="ew", padx=2, pady=2)
 
 # Row 1: SET command - SET [Type] [Var#] = [Value] • [Insert]
-Label(cmdFrame, text="SET", font=("Arial", 10, "bold")).grid(row=1, column=0, sticky="w", padx=(2, 5), pady=2)
+ttk_bootstrap.Label(cmdFrame, text="SET", font=("Arial", 10, "bold")).grid(row=1, column=0, sticky="w", padx=(2, 5), pady=2)
 
 setmenu = OptionMenu(cmdFrame, setoption, "5v Output", "5v Output", "MB Coil", "MB Register")
 setmenu.config(width=12)
@@ -12320,18 +12329,18 @@ setmenu.grid(row=1, column=1, sticky="ew", padx=2, pady=2)
 setVarEntryField = Entry(cmdFrame, width=6, justify="center")
 setVarEntryField.grid(row=1, column=2, sticky="ew", padx=2, pady=2)
 
-Label(cmdFrame, text="=").grid(row=1, column=3, padx=2)
+ttk_bootstrap.Label(cmdFrame, text="=").grid(row=1, column=3, padx=2)
 
 setInputEntryField = Entry(cmdFrame, width=6, justify="center")
 setInputEntryField.grid(row=1, column=4, sticky="ew", padx=2, pady=2)
 
-Label(cmdFrame, text="•").grid(row=1, column=7, padx=2)
+ttk_bootstrap.Label(cmdFrame, text="•").grid(row=1, column=7, padx=2)
 
 insertSetBut = ttk.Button(cmdFrame, text="Insert set CMD", command=SetCMDInsert)
 insertSetBut.grid(row=1, column=8, sticky="ew", padx=2, pady=2)
 
 # Row 2: WAIT command - WAIT [Type] [Var#] = [Value] Timeout = [Time] • [Insert]
-Label(cmdFrame, text="WAIT", font=("Arial", 10, "bold")).grid(row=2, column=0, sticky="w", padx=(2, 5), pady=2)
+ttk_bootstrap.Label(cmdFrame, text="WAIT", font=("Arial", 10, "bold")).grid(row=2, column=0, sticky="w", padx=(2, 5), pady=2)
 
 waitmenu = OptionMenu(cmdFrame, waitoption, "5v Input", "5v Input", "MB Coil", "MB Input")
 waitmenu.config(width=12)
@@ -12340,23 +12349,23 @@ waitmenu.grid(row=2, column=1, sticky="ew", padx=2, pady=2)
 waitVarEntryField = Entry(cmdFrame, width=6, justify="center")
 waitVarEntryField.grid(row=2, column=2, sticky="ew", padx=2, pady=2)
 
-Label(cmdFrame, text="=").grid(row=2, column=3, padx=2)
+ttk_bootstrap.Label(cmdFrame, text="=").grid(row=2, column=3, padx=2)
 
 waitInputEntryField = Entry(cmdFrame, width=6, justify="center")
 waitInputEntryField.grid(row=2, column=4, sticky="ew", padx=2, pady=2)
 
-Label(cmdFrame, text="Timeout =").grid(row=2, column=5, sticky="e", padx=2)
+ttk_bootstrap.Label(cmdFrame, text="Timeout =").grid(row=2, column=5, sticky="e", padx=2)
 
 waitTimeoutEntryField = Entry(cmdFrame, width=6, justify="center")
 waitTimeoutEntryField.grid(row=2, column=6, sticky="ew", padx=2, pady=2)
 
-Label(cmdFrame, text="•").grid(row=2, column=7, padx=2)
+ttk_bootstrap.Label(cmdFrame, text="•").grid(row=2, column=7, padx=2)
 
 insertWaitBut = ttk.Button(cmdFrame, text="Insert WAIT CMD", command=WaitCMDInsert)
 insertWaitBut.grid(row=2, column=8, sticky="ew", padx=2, pady=2)
 
 # Navigation container (2x2 grid layout)
-navFrame = LabelFrame(rightPanel, text="Navigation", padding=5)
+navFrame = ttk_bootstrap.Labelframe(rightPanel, text="Navigation", padding=5)
 navFrame.grid(row=4, column=0, columnspan=2, sticky="ew", padx=5, pady=(2, 5))
 
 # Configure 4 columns for 2x2 grid (button, entry, button, entry)
@@ -12392,7 +12401,7 @@ PlayGCEntryField = Entry(navFrame, width=8, justify="center")
 PlayGCEntryField.grid(row=1, column=3, sticky="ew", padx=2, pady=2)
 
 # Register Commands container
-regFrame = LabelFrame(rightPanel, text="Register Commands", padding=5)
+regFrame = ttk_bootstrap.Labelframe(rightPanel, text="Register Commands", padding=5)
 regFrame.grid(row=5, column=0, columnspan=2, sticky="ew", padx=5, pady=(2, 5))
 
 # Configure columns for side-by-side layout
@@ -12405,11 +12414,11 @@ regFrame.grid_columnconfigure(5, weight=0, minsize=60)   # Element entry
 regFrame.grid_columnconfigure(6, weight=0, minsize=60)   # (++/--) entry
 
 # Row 0: Labels
-Label(regFrame, text="Register", font=("Arial", 8)).grid(row=0, column=1, sticky="w", padx=2)
-Label(regFrame, text="(++/--)", font=("Arial", 8)).grid(row=0, column=2, sticky="w", padx=2)
-Label(regFrame, text="Pos Reg", font=("Arial", 8)).grid(row=0, column=4, sticky="w", padx=2)
-Label(regFrame, text="Element", font=("Arial", 8)).grid(row=0, column=5, sticky="w", padx=2)
-Label(regFrame, text="(++/--)", font=("Arial", 8)).grid(row=0, column=6, sticky="w", padx=2)
+ttk_bootstrap.Label(regFrame, text="Register", font=("Arial", 8)).grid(row=0, column=1, sticky="w", padx=2)
+ttk_bootstrap.Label(regFrame, text="(++/--)", font=("Arial", 8)).grid(row=0, column=2, sticky="w", padx=2)
+ttk_bootstrap.Label(regFrame, text="Pos Reg", font=("Arial", 8)).grid(row=0, column=4, sticky="w", padx=2)
+ttk_bootstrap.Label(regFrame, text="Element", font=("Arial", 8)).grid(row=0, column=5, sticky="w", padx=2)
+ttk_bootstrap.Label(regFrame, text="(++/--)", font=("Arial", 8)).grid(row=0, column=6, sticky="w", padx=2)
 
 # Row 1: Buttons and entry fields
 RegNumBut = ttk.Button(regFrame, text="Register", command=insertRegister)
@@ -12438,7 +12447,7 @@ posRegBut = StorPosBut
 posRegEntryField = storPosNumEntryField
 
 # Device Commands container
-devFrame = LabelFrame(rightPanel, text="Device Commands", padding=5)
+devFrame = ttk_bootstrap.Labelframe(rightPanel, text="Device Commands", padding=5)
 devFrame.grid(row=6, column=0, columnspan=2, sticky="ew", padx=5, pady=(2, 5))
 
 # Configure columns
@@ -12450,10 +12459,10 @@ devFrame.grid_columnconfigure(4, weight=0, minsize=60)   # Port entry
 devFrame.grid_columnconfigure(5, weight=0, minsize=60)   # Char entry
 
 # Row 0: Labels
-Label(devFrame, text="Number", font=("Arial", 8)).grid(row=0, column=1, sticky="w", padx=2)
-Label(devFrame, text="Position", font=("Arial", 8)).grid(row=0, column=2, sticky="w", padx=2)
-Label(devFrame, text="Port", font=("Arial", 8)).grid(row=0, column=4, sticky="w", padx=2)
-Label(devFrame, text="Char", font=("Arial", 8)).grid(row=0, column=5, sticky="w", padx=2)
+ttk_bootstrap.Label(devFrame, text="Number", font=("Arial", 8)).grid(row=0, column=1, sticky="w", padx=2)
+ttk_bootstrap.Label(devFrame, text="Position", font=("Arial", 8)).grid(row=0, column=2, sticky="w", padx=2)
+ttk_bootstrap.Label(devFrame, text="Port", font=("Arial", 8)).grid(row=0, column=4, sticky="w", padx=2)
+ttk_bootstrap.Label(devFrame, text="Char", font=("Arial", 8)).grid(row=0, column=5, sticky="w", padx=2)
 
 # Row 1: Buttons and entry fields
 servoBut = ttk.Button(devFrame, text="Servo", command=Servo)
@@ -12503,13 +12512,13 @@ tab2.grid_columnconfigure(8, weight=1)  # Spacer (expands)
 # ============================================================================
 # ROW 0: Status/Alarm Label (spans all columns)
 # ============================================================================
-almStatusLab2 = Label(tab2, text="SYSTEM STARTING - PLEASE WAIT", style="OK.TLabel")
+almStatusLab2 = ttk_bootstrap.Label(tab2, text="SYSTEM STARTING - PLEASE WAIT", style="OK.TLabel")
 almStatusLab2.grid(row=0, column=0, columnspan=9, sticky="w", padx=25, pady=20)
 
 # ============================================================================
 # ROW 1, COLUMN 0: Communication Frame
 # ============================================================================
-commFrame = LabelFrame(tab2, text="Communication", padding=10)
+commFrame = ttk_bootstrap.Labelframe(tab2, text="Communication", padding=10)
 commFrame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
 
 commFrame.grid_columnconfigure(0, weight=1)
@@ -12536,7 +12545,7 @@ port_choices, default_comport1, default_comport2 = detect_ports()
 logger.debug(f"Available Comm Ports: {port_choices}")
 
 # Teensy COM Port
-ComPortLab = Label(commFrame, text="TEENSY COM PORT:")
+ComPortLab = ttk_bootstrap.Label(commFrame, text="TEENSY COM PORT:")
 ComPortLab.grid(row=0, column=0, sticky="w", padx=5, pady=(5, 2))
 
 com1SelectedValue = tk.StringVar(value=default_comport1 or "None")
@@ -12544,7 +12553,7 @@ com1Select = tk.OptionMenu(commFrame, com1SelectedValue, *port_choices, command=
 com1Select.grid(row=1, column=0, sticky="ew", padx=5, pady=2)
 
 # 5v IO Board COM Port
-ComPortLab2 = Label(commFrame, text="5v IO BOARD COM PORT:")
+ComPortLab2 = ttk_bootstrap.Label(commFrame, text="5v IO BOARD COM PORT:")
 ComPortLab2.grid(row=2, column=0, sticky="w", padx=5, pady=(15, 2))
 
 com2SelectedValue = tk.StringVar(value=default_comport2 or "None")
@@ -12554,7 +12563,7 @@ com2Select.grid(row=3, column=0, sticky="ew", padx=5, pady=2)
 # ============================================================================
 # ROW 1, COLUMN 1: Robot Calibration Frame
 # ============================================================================
-calFrame = LabelFrame(tab2, text="Robot Calibration", padding=10)
+calFrame = ttk_bootstrap.Labelframe(tab2, text="Robot Calibration", padding=10)
 calFrame.grid(row=1, column=1, sticky="nsew", padx=5, pady=5)
 
 calFrame.grid_columnconfigure(0, weight=1)
@@ -12564,7 +12573,7 @@ autoCalBut = Button(calFrame, text="  Auto Calibrate  ", command=calRobotAll)
 autoCalBut.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
 
 # First set of checkboxes (J1-J9)
-checkFrame1 = Frame(calFrame)
+checkFrame1 = ttk_bootstrap.Frame(calFrame)
 checkFrame1.grid(row=1, column=0, sticky="ew", padx=5, pady=5)
 
 checkFrame1.grid_columnconfigure(0, weight=1)
@@ -12599,7 +12608,7 @@ J9calCbut = Checkbutton(checkFrame1, text="J9", variable=CAL['J9CalStatVal'])
 J9calCbut.grid(row=2, column=2, sticky="w", padx=2)
 
 # Second set of checkboxes (J1-J9)
-checkFrame2 = Frame(calFrame)
+checkFrame2 = ttk_bootstrap.Frame(calFrame)
 checkFrame2.grid(row=2, column=0, sticky="ew", padx=5, pady=(10, 5))
 
 checkFrame2.grid_columnconfigure(0, weight=1)
@@ -12662,62 +12671,62 @@ ForceCalHomeBut.grid(row=10, column=0, sticky="ew", padx=5, pady=2)
 # ============================================================================
 # ROW 1, COLUMN 2: Calibration Offsets Frame
 # ============================================================================
-calOffsetFrame = LabelFrame(tab2, text="Calibration Offsets", padding=10)
+calOffsetFrame = ttk_bootstrap.Labelframe(tab2, text="Calibration Offsets", padding=10)
 calOffsetFrame.grid(row=1, column=2, sticky="nsew", padx=5, pady=5)
 
 calOffsetFrame.grid_columnconfigure(0, weight=1)
 calOffsetFrame.grid_columnconfigure(1, weight=1)
 
 # J1 Offset
-J1calLab = Label(calOffsetFrame, text="J1 Offset")
+J1calLab = ttk_bootstrap.Label(calOffsetFrame, text="J1 Offset")
 J1calLab.grid(row=0, column=0, sticky="e", padx=2, pady=2)
 J1calOffEntryField = Entry(calOffsetFrame, width=5, justify="center")
 J1calOffEntryField.grid(row=0, column=1, sticky="w", padx=2, pady=2)
 
 # J2 Offset
-J2calLab = Label(calOffsetFrame, text="J2 Offset")
+J2calLab = ttk_bootstrap.Label(calOffsetFrame, text="J2 Offset")
 J2calLab.grid(row=1, column=0, sticky="e", padx=2, pady=2)
 J2calOffEntryField = Entry(calOffsetFrame, width=5, justify="center")
 J2calOffEntryField.grid(row=1, column=1, sticky="w", padx=2, pady=2)
 
 # J3 Offset
-J3calLab = Label(calOffsetFrame, text="J3 Offset")
+J3calLab = ttk_bootstrap.Label(calOffsetFrame, text="J3 Offset")
 J3calLab.grid(row=2, column=0, sticky="e", padx=2, pady=2)
 J3calOffEntryField = Entry(calOffsetFrame, width=5, justify="center")
 J3calOffEntryField.grid(row=2, column=1, sticky="w", padx=2, pady=2)
 
 # J4 Offset
-J4calLab = Label(calOffsetFrame, text="J4 Offset")
+J4calLab = ttk_bootstrap.Label(calOffsetFrame, text="J4 Offset")
 J4calLab.grid(row=3, column=0, sticky="e", padx=2, pady=2)
 J4calOffEntryField = Entry(calOffsetFrame, width=5, justify="center")
 J4calOffEntryField.grid(row=3, column=1, sticky="w", padx=2, pady=2)
 
 # J5 Offset
-J5calLab = Label(calOffsetFrame, text="J5 Offset")
+J5calLab = ttk_bootstrap.Label(calOffsetFrame, text="J5 Offset")
 J5calLab.grid(row=4, column=0, sticky="e", padx=2, pady=2)
 J5calOffEntryField = Entry(calOffsetFrame, width=5, justify="center")
 J5calOffEntryField.grid(row=4, column=1, sticky="w", padx=2, pady=2)
 
 # J6 Offset
-J6calLab = Label(calOffsetFrame, text="J6 Offset")
+J6calLab = ttk_bootstrap.Label(calOffsetFrame, text="J6 Offset")
 J6calLab.grid(row=5, column=0, sticky="e", padx=2, pady=2)
 J6calOffEntryField = Entry(calOffsetFrame, width=5, justify="center")
 J6calOffEntryField.grid(row=5, column=1, sticky="w", padx=2, pady=2)
 
 # J7 Offset
-J7calLab = Label(calOffsetFrame, text="J7 Offset")
+J7calLab = ttk_bootstrap.Label(calOffsetFrame, text="J7 Offset")
 J7calLab.grid(row=6, column=0, sticky="e", padx=2, pady=2)
 J7calOffEntryField = Entry(calOffsetFrame, width=5, justify="center")
 J7calOffEntryField.grid(row=6, column=1, sticky="w", padx=2, pady=2)
 
 # J8 Offset
-J8calLab = Label(calOffsetFrame, text="J8 Offset")
+J8calLab = ttk_bootstrap.Label(calOffsetFrame, text="J8 Offset")
 J8calLab.grid(row=7, column=0, sticky="e", padx=2, pady=2)
 J8calOffEntryField = Entry(calOffsetFrame, width=5, justify="center")
 J8calOffEntryField.grid(row=7, column=1, sticky="w", padx=2, pady=2)
 
 # J9 Offset
-J9calLab = Label(calOffsetFrame, text="J9 Offset")
+J9calLab = ttk_bootstrap.Label(calOffsetFrame, text="J9 Offset")
 J9calLab.grid(row=8, column=0, sticky="e", padx=2, pady=2)
 J9calOffEntryField = Entry(calOffsetFrame, width=5, justify="center")
 J9calOffEntryField.grid(row=8, column=1, sticky="w", padx=2, pady=2)
@@ -12726,7 +12735,7 @@ J9calOffEntryField.grid(row=8, column=1, sticky="w", padx=2, pady=2)
 # ============================================================================
 # ROW 1, COLUMN 3: Encoder Control Frame
 # ============================================================================
-encoderFrame = LabelFrame(tab2, text="Encoder Control", padding=10)
+encoderFrame = ttk_bootstrap.Labelframe(tab2, text="Encoder Control", padding=10)
 encoderFrame.grid(row=1, column=3, sticky="nsew", padx=5, pady=5)
 
 encoderFrame.grid_columnconfigure(0, weight=1)
@@ -12793,7 +12802,7 @@ main_color_var = tk.StringVar(value="Royal Blue")
 # ============================================================================
 # ROW 1, COLUMN 5: Theme Frame
 # ============================================================================
-themeFrame = LabelFrame(tab2, text="Theme", padding=10)
+themeFrame = ttk_bootstrap.Labelframe(tab2, text="Theme", padding=10)
 themeFrame.grid(row=1, column=5, sticky="nsew", padx=5, pady=5)
 
 themeFrame.grid_columnconfigure(0, weight=1)
@@ -12807,7 +12816,7 @@ darkBut = Button(themeFrame, text="  Dark   ", command=darkTheme)
 darkBut.grid(row=0, column=1, sticky="ew", padx=2, pady=2)
 
 # Robot Color label and dropdown
-robotColorLab = Label(themeFrame, text="Robot Color", font=("Arial", 10, "bold"))
+robotColorLab = ttk_bootstrap.Label(themeFrame, text="Robot Color", font=("Arial", 10, "bold"))
 robotColorLab.grid(row=1, column=0, columnspan=2, sticky="w", padx=2, pady=(10, 2))
 
 main_color_dropdown = ttk.OptionMenu(themeFrame, main_color_var, main_color_var.get(), *color_options, command=update_main_color)
@@ -12819,27 +12828,27 @@ main_color_dropdown.grid(row=2, column=0, columnspan=2, sticky="ew", padx=2, pad
 # ============================================================================
 # ROW 1, COLUMN 4: External Axes Frame
 # ============================================================================
-externalAxesFrame = LabelFrame(tab2, text="External Axes", padding=10)
+externalAxesFrame = ttk_bootstrap.Labelframe(tab2, text="External Axes", padding=10)
 externalAxesFrame.grid(row=1, column=4, sticky="nsew", padx=5, pady=5)
 
 externalAxesFrame.grid_columnconfigure(0, weight=0)  # Labels
 externalAxesFrame.grid_columnconfigure(1, weight=1)  # Entry fields
 
 # --- 7th Axis Calibration ---
-axis7Lab = Label(externalAxesFrame, font=("Arial 10 bold"), text="7th Axis Calibration")
+axis7Lab = ttk_bootstrap.Label(externalAxesFrame, font=("Arial 10 bold"), text="7th Axis Calibration")
 axis7Lab.grid(row=0, column=0, columnspan=2, sticky="w", padx=5, pady=(5, 10))
 
-axis7lengthLab = Label(externalAxesFrame, text="7th Axis Length:")
+axis7lengthLab = ttk_bootstrap.Label(externalAxesFrame, text="7th Axis Length:")
 axis7lengthLab.grid(row=1, column=0, sticky="e", padx=5, pady=2)
 axis7lengthEntryField = Entry(externalAxesFrame, width=5, justify="center")
 axis7lengthEntryField.grid(row=1, column=1, sticky="w", padx=5, pady=2)
 
-axis7rotLab = Label(externalAxesFrame, text="MM per Rotation:")
+axis7rotLab = ttk_bootstrap.Label(externalAxesFrame, text="MM per Rotation:")
 axis7rotLab.grid(row=2, column=0, sticky="e", padx=5, pady=2)
 axis7rotEntryField = Entry(externalAxesFrame, width=5, justify="center")
 axis7rotEntryField.grid(row=2, column=1, sticky="w", padx=5, pady=2)
 
-axis7stepsLab = Label(externalAxesFrame, text="Drive Steps:")
+axis7stepsLab = ttk_bootstrap.Label(externalAxesFrame, text="Drive Steps:")
 axis7stepsLab.grid(row=3, column=0, sticky="e", padx=5, pady=2)
 axis7stepsEntryField = Entry(externalAxesFrame, width=5, justify="center")
 axis7stepsEntryField.grid(row=3, column=1, sticky="w", padx=5, pady=2)
@@ -12850,24 +12859,24 @@ J7zerobut.grid(row=4, column=0, columnspan=2, sticky="ew", padx=5, pady=2)
 J7calbut = Button(externalAxesFrame, text="Autocalibrate Axis 7", width=28, command=calRobotJ7)
 J7calbut.grid(row=5, column=0, columnspan=2, sticky="ew", padx=5, pady=2)
 
-axis7pinsetLab = Label(externalAxesFrame, font=("Arial", 8), text="StepPin = 12 / DirPin = 13 / CalPin = 36")
+axis7pinsetLab = ttk_bootstrap.Label(externalAxesFrame, font=("Arial", 8), text="StepPin = 12 / DirPin = 13 / CalPin = 36")
 axis7pinsetLab.grid(row=6, column=0, columnspan=2, sticky="w", padx=5, pady=(2, 15))
 
 # --- 8th Axis Calibration ---
-axis8Lab = Label(externalAxesFrame, font=("Arial 10 bold"), text="8th Axis Calibration")
+axis8Lab = ttk_bootstrap.Label(externalAxesFrame, font=("Arial 10 bold"), text="8th Axis Calibration")
 axis8Lab.grid(row=7, column=0, columnspan=2, sticky="w", padx=5, pady=(5, 10))
 
-axis8lengthLab = Label(externalAxesFrame, text="8th Axis Length:")
+axis8lengthLab = ttk_bootstrap.Label(externalAxesFrame, text="8th Axis Length:")
 axis8lengthLab.grid(row=8, column=0, sticky="e", padx=5, pady=2)
 axis8lengthEntryField = Entry(externalAxesFrame, width=5, justify="center")
 axis8lengthEntryField.grid(row=8, column=1, sticky="w", padx=5, pady=2)
 
-axis8rotLab = Label(externalAxesFrame, text="MM per Rotation:")
+axis8rotLab = ttk_bootstrap.Label(externalAxesFrame, text="MM per Rotation:")
 axis8rotLab.grid(row=9, column=0, sticky="e", padx=5, pady=2)
 axis8rotEntryField = Entry(externalAxesFrame, width=5, justify="center")
 axis8rotEntryField.grid(row=9, column=1, sticky="w", padx=5, pady=2)
 
-axis8stepsLab = Label(externalAxesFrame, text="Drive Steps:")
+axis8stepsLab = ttk_bootstrap.Label(externalAxesFrame, text="Drive Steps:")
 axis8stepsLab.grid(row=10, column=0, sticky="e", padx=5, pady=2)
 axis8stepsEntryField = Entry(externalAxesFrame, width=5, justify="center")
 axis8stepsEntryField.grid(row=10, column=1, sticky="w", padx=5, pady=2)
@@ -12878,24 +12887,24 @@ J8zerobut.grid(row=11, column=0, columnspan=2, sticky="ew", padx=5, pady=2)
 J8calbut = Button(externalAxesFrame, text="Autocalibrate Axis 8", width=28, command=calRobotJ8)
 J8calbut.grid(row=12, column=0, columnspan=2, sticky="ew", padx=5, pady=2)
 
-axis8pinsetLab = Label(externalAxesFrame, font=("Arial", 8), text="StepPin = 32 / DirPin = 33 / CalPin = 37")
+axis8pinsetLab = ttk_bootstrap.Label(externalAxesFrame, font=("Arial", 8), text="StepPin = 32 / DirPin = 33 / CalPin = 37")
 axis8pinsetLab.grid(row=13, column=0, columnspan=2, sticky="w", padx=5, pady=(2, 15))
 
 # --- 9th Axis Calibration ---
-axis9Lab = Label(externalAxesFrame, font=("Arial 10 bold"), text="9th Axis Calibration")
+axis9Lab = ttk_bootstrap.Label(externalAxesFrame, font=("Arial 10 bold"), text="9th Axis Calibration")
 axis9Lab.grid(row=14, column=0, columnspan=2, sticky="w", padx=5, pady=(5, 10))
 
-axis9lengthLab = Label(externalAxesFrame, text="9th Axis Length:")
+axis9lengthLab = ttk_bootstrap.Label(externalAxesFrame, text="9th Axis Length:")
 axis9lengthLab.grid(row=15, column=0, sticky="e", padx=5, pady=2)
 axis9lengthEntryField = Entry(externalAxesFrame, width=5, justify="center")
 axis9lengthEntryField.grid(row=15, column=1, sticky="w", padx=5, pady=2)
 
-axis9rotLab = Label(externalAxesFrame, text="MM per Rotation:")
+axis9rotLab = ttk_bootstrap.Label(externalAxesFrame, text="MM per Rotation:")
 axis9rotLab.grid(row=16, column=0, sticky="e", padx=5, pady=2)
 axis9rotEntryField = Entry(externalAxesFrame, width=5, justify="center")
 axis9rotEntryField.grid(row=16, column=1, sticky="w", padx=5, pady=2)
 
-axis9stepsLab = Label(externalAxesFrame, text="Drive Steps:")
+axis9stepsLab = ttk_bootstrap.Label(externalAxesFrame, text="Drive Steps:")
 axis9stepsLab.grid(row=17, column=0, sticky="e", padx=5, pady=2)
 axis9stepsEntryField = Entry(externalAxesFrame, width=5, justify="center")
 axis9stepsEntryField.grid(row=17, column=1, sticky="w", padx=5, pady=2)
@@ -12906,14 +12915,14 @@ J9zerobut.grid(row=18, column=0, columnspan=2, sticky="ew", padx=5, pady=2)
 J9calbut = Button(externalAxesFrame, text="Autocalibrate Axis 9", width=28, command=calRobotJ9)
 J9calbut.grid(row=19, column=0, columnspan=2, sticky="ew", padx=5, pady=2)
 
-axis9pinsetLab = Label(externalAxesFrame, font=("Arial", 8), text="StepPin = 34 / DirPin = 35 / CalPin = 38")
+axis9pinsetLab = ttk_bootstrap.Label(externalAxesFrame, font=("Arial", 8), text="StepPin = 34 / DirPin = 35 / CalPin = 38")
 axis9pinsetLab.grid(row=20, column=0, columnspan=2, sticky="w", padx=5, pady=(2, 5))
 
 
 # ============================================================================
 # ROW 1, COLUMN 6: Virtual Import Frame
 # ============================================================================
-virtualImportFrame = LabelFrame(tab2, text="Virtual Import", padding=10)
+virtualImportFrame = ttk_bootstrap.Labelframe(tab2, text="Virtual Import", padding=10)
 virtualImportFrame.grid(row=1, column=6, sticky="nsew", padx=5, pady=5)
 
 virtualImportFrame.grid_columnconfigure(0, weight=1)
@@ -12923,31 +12932,31 @@ importSTLBut = ttk.Button(virtualImportFrame, text="Import STL", command=import_
 importSTLBut.grid(row=0, column=0, sticky="ew", padx=5, pady=5)
 
 # File Name
-fileNameLab = Label(virtualImportFrame, text="File Name")
+fileNameLab = ttk_bootstrap.Label(virtualImportFrame, text="File Name")
 fileNameLab.grid(row=1, column=0, sticky="w", padx=5, pady=(10, 2))
 stl_name_entry = Entry(virtualImportFrame, textvariable=stl_name_var, width=20)
 stl_name_entry.grid(row=2, column=0, sticky="ew", padx=5, pady=2)
 
 # X Position
-xPosLab = Label(virtualImportFrame, text="X Position")
+xPosLab = ttk_bootstrap.Label(virtualImportFrame, text="X Position")
 xPosLab.grid(row=3, column=0, sticky="w", padx=5, pady=(10, 2))
 x_entry = Entry(virtualImportFrame, textvariable=x_var, width=10)
 x_entry.grid(row=4, column=0, sticky="w", padx=5, pady=2)
 
 # Y Position
-yPosLab = Label(virtualImportFrame, text="Y Position")
+yPosLab = ttk_bootstrap.Label(virtualImportFrame, text="Y Position")
 yPosLab.grid(row=5, column=0, sticky="w", padx=5, pady=(10, 2))
 y_entry = Entry(virtualImportFrame, textvariable=y_var, width=10)
 y_entry.grid(row=6, column=0, sticky="w", padx=5, pady=2)
 
 # Z Position
-zPosLab = Label(virtualImportFrame, text="Z Position")
+zPosLab = ttk_bootstrap.Label(virtualImportFrame, text="Z Position")
 zPosLab.grid(row=7, column=0, sticky="w", padx=5, pady=(10, 2))
 z_entry = Entry(virtualImportFrame, textvariable=z_var, width=10)
 z_entry.grid(row=8, column=0, sticky="w", padx=5, pady=2)
 
 # Z Rotation
-zRotLab = Label(virtualImportFrame, text="Z Rotation")
+zRotLab = ttk_bootstrap.Label(virtualImportFrame, text="Z Rotation")
 zRotLab.grid(row=9, column=0, sticky="w", padx=5, pady=(10, 2))
 rot_entry = Entry(virtualImportFrame, textvariable=rot_var, width=10)
 rot_entry.grid(row=10, column=0, sticky="w", padx=5, pady=2)
@@ -12959,7 +12968,7 @@ updatePosBut.grid(row=11, column=0, sticky="ew", padx=5, pady=(10, 5))
 # ============================================================================
 # ROW 2, COLUMN 5: Save Frame (below and right of Commands)
 # ============================================================================
-saveFrame = LabelFrame(tab2, text="Save", padding=10)
+saveFrame = ttk_bootstrap.Labelframe(tab2, text="Save", padding=10)
 saveFrame.grid(row=2, column=5, columnspan=2, sticky="ew", padx=5, pady=5)
 
 saveFrame.grid_columnconfigure(0, weight=1)
@@ -12972,18 +12981,18 @@ saveCalBut.grid(row=0, column=0, sticky="", padx=5, pady=5)
 # ============================================================================
 # ROW 2: Commands Frame (spans all columns)
 # ============================================================================
-cmdFrame = LabelFrame(tab2, text="Commands", padding=10)
+cmdFrame = ttk_bootstrap.Labelframe(tab2, text="Commands", padding=10)
 cmdFrame.grid(row=2, column=0, columnspan=5, sticky="ew", padx=5, pady=5)
 
 cmdFrame.grid_columnconfigure(0, weight=1)
 
-cmdSentLab = Label(cmdFrame, text="Last Command Sent to Controller")
+cmdSentLab = ttk_bootstrap.Label(cmdFrame, text="Last Command Sent to Controller")
 cmdSentLab.grid(row=0, column=0, sticky="w", padx=5, pady=(0, 2))
 
 cmdSentEntryField = Entry(cmdFrame, width=120, justify="center")
 cmdSentEntryField.grid(row=1, column=0, sticky="ew", padx=5, pady=2)
 
-cmdRecLab = Label(cmdFrame, text="Last Response From Controller")
+cmdRecLab = ttk_bootstrap.Label(cmdFrame, text="Last Response From Controller")
 cmdRecLab.grid(row=2, column=0, sticky="w", padx=5, pady=(10, 2))
 
 cmdRecEntryField = Entry(cmdFrame, width=120, justify="center")
@@ -13006,52 +13015,52 @@ tab3.grid_columnconfigure(5, weight=1)  # Remaining .place() widgets
 # ============================================================================
 # Motor Direction Frame (Row 0, Column 0)
 # ============================================================================
-motorDirFrame = LabelFrame(tab3, text="Motor Direction", padding=10)
+motorDirFrame = ttk_bootstrap.Labelframe(tab3, text="Motor Direction", padding=10)
 motorDirFrame.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
 motorDirFrame.grid_columnconfigure(0, weight=0)
 motorDirFrame.grid_columnconfigure(1, weight=1)
 
-J1MotDirLab_grid = Label(motorDirFrame, font=("Arial", 8), text="J1 Motor Direction")
+J1MotDirLab_grid = ttk_bootstrap.Label(motorDirFrame, font=("Arial", 8), text="J1 Motor Direction")
 J1MotDirLab_grid.grid(row=0, column=0, sticky="w", padx=5, pady=2)
 J1MotDirEntryField = Entry(motorDirFrame, width=5, justify="center")
 J1MotDirEntryField.grid(row=0, column=1, sticky="w", padx=5, pady=2)
 
-J2MotDirLab_grid = Label(motorDirFrame, font=("Arial", 8), text="J2 Motor Direction")
+J2MotDirLab_grid = ttk_bootstrap.Label(motorDirFrame, font=("Arial", 8), text="J2 Motor Direction")
 J2MotDirLab_grid.grid(row=1, column=0, sticky="w", padx=5, pady=2)
 J2MotDirEntryField = Entry(motorDirFrame, width=5, justify="center")
 J2MotDirEntryField.grid(row=1, column=1, sticky="w", padx=5, pady=2)
 
-J3MotDirLab_grid = Label(motorDirFrame, font=("Arial", 8), text="J3 Motor Direction")
+J3MotDirLab_grid = ttk_bootstrap.Label(motorDirFrame, font=("Arial", 8), text="J3 Motor Direction")
 J3MotDirLab_grid.grid(row=2, column=0, sticky="w", padx=5, pady=2)
 J3MotDirEntryField = Entry(motorDirFrame, width=5, justify="center")
 J3MotDirEntryField.grid(row=2, column=1, sticky="w", padx=5, pady=2)
 
-J4MotDirLab_grid = Label(motorDirFrame, font=("Arial", 8), text="J4 Motor Direction")
+J4MotDirLab_grid = ttk_bootstrap.Label(motorDirFrame, font=("Arial", 8), text="J4 Motor Direction")
 J4MotDirLab_grid.grid(row=3, column=0, sticky="w", padx=5, pady=2)
 J4MotDirEntryField = Entry(motorDirFrame, width=5, justify="center")
 J4MotDirEntryField.grid(row=3, column=1, sticky="w", padx=5, pady=2)
 
-J5MotDirLab_grid = Label(motorDirFrame, font=("Arial", 8), text="J5 Motor Direction")
+J5MotDirLab_grid = ttk_bootstrap.Label(motorDirFrame, font=("Arial", 8), text="J5 Motor Direction")
 J5MotDirLab_grid.grid(row=4, column=0, sticky="w", padx=5, pady=2)
 J5MotDirEntryField = Entry(motorDirFrame, width=5, justify="center")
 J5MotDirEntryField.grid(row=4, column=1, sticky="w", padx=5, pady=2)
 
-J6MotDirLab_grid = Label(motorDirFrame, font=("Arial", 8), text="J6 Motor Direction")
+J6MotDirLab_grid = ttk_bootstrap.Label(motorDirFrame, font=("Arial", 8), text="J6 Motor Direction")
 J6MotDirLab_grid.grid(row=5, column=0, sticky="w", padx=5, pady=2)
 J6MotDirEntryField = Entry(motorDirFrame, width=5, justify="center")
 J6MotDirEntryField.grid(row=5, column=1, sticky="w", padx=5, pady=2)
 
-J7MotDirLab_grid = Label(motorDirFrame, font=("Arial", 8), text="J7 Motor Direction")
+J7MotDirLab_grid = ttk_bootstrap.Label(motorDirFrame, font=("Arial", 8), text="J7 Motor Direction")
 J7MotDirLab_grid.grid(row=6, column=0, sticky="w", padx=5, pady=2)
 J7MotDirEntryField = Entry(motorDirFrame, width=5, justify="center")
 J7MotDirEntryField.grid(row=6, column=1, sticky="w", padx=5, pady=2)
 
-J8MotDirLab_grid = Label(motorDirFrame, font=("Arial", 8), text="J8 Motor Direction")
+J8MotDirLab_grid = ttk_bootstrap.Label(motorDirFrame, font=("Arial", 8), text="J8 Motor Direction")
 J8MotDirLab_grid.grid(row=7, column=0, sticky="w", padx=5, pady=2)
 J8MotDirEntryField = Entry(motorDirFrame, width=5, justify="center")
 J8MotDirEntryField.grid(row=7, column=1, sticky="w", padx=5, pady=2)
 
-J9MotDirLab_grid = Label(motorDirFrame, font=("Arial", 8), text="J9 Motor Direction")
+J9MotDirLab_grid = ttk_bootstrap.Label(motorDirFrame, font=("Arial", 8), text="J9 Motor Direction")
 J9MotDirLab_grid.grid(row=8, column=0, sticky="w", padx=5, pady=2)
 J9MotDirEntryField = Entry(motorDirFrame, width=5, justify="center")
 J9MotDirEntryField.grid(row=8, column=1, sticky="w", padx=5, pady=2)
@@ -13059,52 +13068,52 @@ J9MotDirEntryField.grid(row=8, column=1, sticky="w", padx=5, pady=2)
 # ============================================================================
 # Calibration Direction Frame (Row 1, Column 0)
 # ============================================================================
-calDirFrame = LabelFrame(tab3, text="Calibration Direction", padding=10)
+calDirFrame = ttk_bootstrap.Labelframe(tab3, text="Calibration Direction", padding=10)
 calDirFrame.grid(row=1, column=0, sticky="nsew", padx=5, pady=5)
 calDirFrame.grid_columnconfigure(0, weight=0)
 calDirFrame.grid_columnconfigure(1, weight=1)
 
-J1CalDirLab_grid = Label(calDirFrame, font=("Arial", 8), text="J1 Calibration Dir.")
+J1CalDirLab_grid = ttk_bootstrap.Label(calDirFrame, font=("Arial", 8), text="J1 Calibration Dir.")
 J1CalDirLab_grid.grid(row=0, column=0, sticky="w", padx=5, pady=2)
 J1CalDirEntryField = Entry(calDirFrame, width=5, justify="center")
 J1CalDirEntryField.grid(row=0, column=1, sticky="w", padx=5, pady=2)
 
-J2CalDirLab_grid = Label(calDirFrame, font=("Arial", 8), text="J2 Calibration Dir.")
+J2CalDirLab_grid = ttk_bootstrap.Label(calDirFrame, font=("Arial", 8), text="J2 Calibration Dir.")
 J2CalDirLab_grid.grid(row=1, column=0, sticky="w", padx=5, pady=2)
 J2CalDirEntryField = Entry(calDirFrame, width=5, justify="center")
 J2CalDirEntryField.grid(row=1, column=1, sticky="w", padx=5, pady=2)
 
-J3CalDirLab_grid = Label(calDirFrame, font=("Arial", 8), text="J3 Calibration Dir.")
+J3CalDirLab_grid = ttk_bootstrap.Label(calDirFrame, font=("Arial", 8), text="J3 Calibration Dir.")
 J3CalDirLab_grid.grid(row=2, column=0, sticky="w", padx=5, pady=2)
 J3CalDirEntryField = Entry(calDirFrame, width=5, justify="center")
 J3CalDirEntryField.grid(row=2, column=1, sticky="w", padx=5, pady=2)
 
-J4CalDirLab_grid = Label(calDirFrame, font=("Arial", 8), text="J4 Calibration Dir.")
+J4CalDirLab_grid = ttk_bootstrap.Label(calDirFrame, font=("Arial", 8), text="J4 Calibration Dir.")
 J4CalDirLab_grid.grid(row=3, column=0, sticky="w", padx=5, pady=2)
 J4CalDirEntryField = Entry(calDirFrame, width=5, justify="center")
 J4CalDirEntryField.grid(row=3, column=1, sticky="w", padx=5, pady=2)
 
-J5CalDirLab_grid = Label(calDirFrame, font=("Arial", 8), text="J5 Calibration Dir.")
+J5CalDirLab_grid = ttk_bootstrap.Label(calDirFrame, font=("Arial", 8), text="J5 Calibration Dir.")
 J5CalDirLab_grid.grid(row=4, column=0, sticky="w", padx=5, pady=2)
 J5CalDirEntryField = Entry(calDirFrame, width=5, justify="center")
 J5CalDirEntryField.grid(row=4, column=1, sticky="w", padx=5, pady=2)
 
-J6CalDirLab_grid = Label(calDirFrame, font=("Arial", 8), text="J6 Calibration Dir.")
+J6CalDirLab_grid = ttk_bootstrap.Label(calDirFrame, font=("Arial", 8), text="J6 Calibration Dir.")
 J6CalDirLab_grid.grid(row=5, column=0, sticky="w", padx=5, pady=2)
 J6CalDirEntryField = Entry(calDirFrame, width=5, justify="center")
 J6CalDirEntryField.grid(row=5, column=1, sticky="w", padx=5, pady=2)
 
-J7CalDirLab_grid = Label(calDirFrame, font=("Arial", 8), text="J7 Calibration Dir.")
+J7CalDirLab_grid = ttk_bootstrap.Label(calDirFrame, font=("Arial", 8), text="J7 Calibration Dir.")
 J7CalDirLab_grid.grid(row=6, column=0, sticky="w", padx=5, pady=2)
 J7CalDirEntryField = Entry(calDirFrame, width=5, justify="center")
 J7CalDirEntryField.grid(row=6, column=1, sticky="w", padx=5, pady=2)
 
-J8CalDirLab_grid = Label(calDirFrame, font=("Arial", 8), text="J8 Calibration Dir.")
+J8CalDirLab_grid = ttk_bootstrap.Label(calDirFrame, font=("Arial", 8), text="J8 Calibration Dir.")
 J8CalDirLab_grid.grid(row=7, column=0, sticky="w", padx=5, pady=2)
 J8CalDirEntryField = Entry(calDirFrame, width=5, justify="center")
 J8CalDirEntryField.grid(row=7, column=1, sticky="w", padx=5, pady=2)
 
-J9CalDirLab_grid = Label(calDirFrame, font=("Arial", 8), text="J9 Calibration Dir.")
+J9CalDirLab_grid = ttk_bootstrap.Label(calDirFrame, font=("Arial", 8), text="J9 Calibration Dir.")
 J9CalDirLab_grid.grid(row=8, column=0, sticky="w", padx=5, pady=2)
 J9CalDirEntryField = Entry(calDirFrame, width=5, justify="center")
 J9CalDirEntryField.grid(row=8, column=1, sticky="w", padx=5, pady=2)
@@ -13112,67 +13121,67 @@ J9CalDirEntryField.grid(row=8, column=1, sticky="w", padx=5, pady=2)
 # ============================================================================
 # Position Limits Frame (Row 0, Column 1)
 # ============================================================================
-posLimFrame = LabelFrame(tab3, text="Position Limits", padding=10)
+posLimFrame = ttk_bootstrap.Labelframe(tab3, text="Position Limits", padding=10)
 posLimFrame.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
 posLimFrame.grid_columnconfigure(0, weight=0)
 posLimFrame.grid_columnconfigure(1, weight=1)
 
-J1PosLimLab_grid = Label(posLimFrame, font=("Arial", 8), text="J1 Pos Limit")
+J1PosLimLab_grid = ttk_bootstrap.Label(posLimFrame, font=("Arial", 8), text="J1 Pos Limit")
 J1PosLimLab_grid.grid(row=0, column=0, sticky="w", padx=5, pady=2)
 J1PosLimEntryField = Entry(posLimFrame, width=5, justify="center")
 J1PosLimEntryField.grid(row=0, column=1, sticky="w", padx=5, pady=2)
 
-J1NegLimLab_grid = Label(posLimFrame, font=("Arial", 8), text="J1 Neg Limit")
+J1NegLimLab_grid = ttk_bootstrap.Label(posLimFrame, font=("Arial", 8), text="J1 Neg Limit")
 J1NegLimLab_grid.grid(row=1, column=0, sticky="w", padx=5, pady=2)
 J1NegLimEntryField = Entry(posLimFrame, width=5, justify="center")
 J1NegLimEntryField.grid(row=1, column=1, sticky="w", padx=5, pady=2)
 
-J2PosLimLab_grid = Label(posLimFrame, font=("Arial", 8), text="J2 Pos Limit")
+J2PosLimLab_grid = ttk_bootstrap.Label(posLimFrame, font=("Arial", 8), text="J2 Pos Limit")
 J2PosLimLab_grid.grid(row=2, column=0, sticky="w", padx=5, pady=2)
 J2PosLimEntryField = Entry(posLimFrame, width=5, justify="center")
 J2PosLimEntryField.grid(row=2, column=1, sticky="w", padx=5, pady=2)
 
-J2NegLimLab_grid = Label(posLimFrame, font=("Arial", 8), text="J2 Neg Limit")
+J2NegLimLab_grid = ttk_bootstrap.Label(posLimFrame, font=("Arial", 8), text="J2 Neg Limit")
 J2NegLimLab_grid.grid(row=3, column=0, sticky="w", padx=5, pady=2)
 J2NegLimEntryField = Entry(posLimFrame, width=5, justify="center")
 J2NegLimEntryField.grid(row=3, column=1, sticky="w", padx=5, pady=2)
 
-J3PosLimLab_grid = Label(posLimFrame, font=("Arial", 8), text="J3 Pos Limit")
+J3PosLimLab_grid = ttk_bootstrap.Label(posLimFrame, font=("Arial", 8), text="J3 Pos Limit")
 J3PosLimLab_grid.grid(row=4, column=0, sticky="w", padx=5, pady=2)
 J3PosLimEntryField = Entry(posLimFrame, width=5, justify="center")
 J3PosLimEntryField.grid(row=4, column=1, sticky="w", padx=5, pady=2)
 
-J3NegLimLab_grid = Label(posLimFrame, font=("Arial", 8), text="J3 Neg Limit")
+J3NegLimLab_grid = ttk_bootstrap.Label(posLimFrame, font=("Arial", 8), text="J3 Neg Limit")
 J3NegLimLab_grid.grid(row=5, column=0, sticky="w", padx=5, pady=2)
 J3NegLimEntryField = Entry(posLimFrame, width=5, justify="center")
 J3NegLimEntryField.grid(row=5, column=1, sticky="w", padx=5, pady=2)
 
-J4PosLimLab_grid = Label(posLimFrame, font=("Arial", 8), text="J4 Pos Limit")
+J4PosLimLab_grid = ttk_bootstrap.Label(posLimFrame, font=("Arial", 8), text="J4 Pos Limit")
 J4PosLimLab_grid.grid(row=6, column=0, sticky="w", padx=5, pady=2)
 J4PosLimEntryField = Entry(posLimFrame, width=5, justify="center")
 J4PosLimEntryField.grid(row=6, column=1, sticky="w", padx=5, pady=2)
 
-J4NegLimLab_grid = Label(posLimFrame, font=("Arial", 8), text="J4 Neg Limit")
+J4NegLimLab_grid = ttk_bootstrap.Label(posLimFrame, font=("Arial", 8), text="J4 Neg Limit")
 J4NegLimLab_grid.grid(row=7, column=0, sticky="w", padx=5, pady=2)
 J4NegLimEntryField = Entry(posLimFrame, width=5, justify="center")
 J4NegLimEntryField.grid(row=7, column=1, sticky="w", padx=5, pady=2)
 
-J5PosLimLab_grid = Label(posLimFrame, font=("Arial", 8), text="J5 Pos Limit")
+J5PosLimLab_grid = ttk_bootstrap.Label(posLimFrame, font=("Arial", 8), text="J5 Pos Limit")
 J5PosLimLab_grid.grid(row=8, column=0, sticky="w", padx=5, pady=2)
 J5PosLimEntryField = Entry(posLimFrame, width=5, justify="center")
 J5PosLimEntryField.grid(row=8, column=1, sticky="w", padx=5, pady=2)
 
-J5NegLimLab_grid = Label(posLimFrame, font=("Arial", 8), text="J5 Neg Limit")
+J5NegLimLab_grid = ttk_bootstrap.Label(posLimFrame, font=("Arial", 8), text="J5 Neg Limit")
 J5NegLimLab_grid.grid(row=9, column=0, sticky="w", padx=5, pady=2)
 J5NegLimEntryField = Entry(posLimFrame, width=5, justify="center")
 J5NegLimEntryField.grid(row=9, column=1, sticky="w", padx=5, pady=2)
 
-J6PosLimLab_grid = Label(posLimFrame, font=("Arial", 8), text="J6 Pos Limit")
+J6PosLimLab_grid = ttk_bootstrap.Label(posLimFrame, font=("Arial", 8), text="J6 Pos Limit")
 J6PosLimLab_grid.grid(row=10, column=0, sticky="w", padx=5, pady=2)
 J6PosLimEntryField = Entry(posLimFrame, width=5, justify="center")
 J6PosLimEntryField.grid(row=10, column=1, sticky="w", padx=5, pady=2)
 
-J6NegLimLab_grid = Label(posLimFrame, font=("Arial", 8), text="J6 Neg Limit")
+J6NegLimLab_grid = ttk_bootstrap.Label(posLimFrame, font=("Arial", 8), text="J6 Neg Limit")
 J6NegLimLab_grid.grid(row=11, column=0, sticky="w", padx=5, pady=2)
 J6NegLimEntryField = Entry(posLimFrame, width=5, justify="center")
 J6NegLimEntryField.grid(row=11, column=1, sticky="w", padx=5, pady=2)
@@ -13180,37 +13189,37 @@ J6NegLimEntryField.grid(row=11, column=1, sticky="w", padx=5, pady=2)
 # ============================================================================
 # Steps per Degree Frame (Row 1, Column 1)
 # ============================================================================
-stepDegFrame = LabelFrame(tab3, text="Steps per Degree", padding=10)
+stepDegFrame = ttk_bootstrap.Labelframe(tab3, text="Steps per Degree", padding=10)
 stepDegFrame.grid(row=1, column=1, sticky="nsew", padx=5, pady=5)
 stepDegFrame.grid_columnconfigure(0, weight=0)
 stepDegFrame.grid_columnconfigure(1, weight=1)
 
-J1StepDegLab_grid = Label(stepDegFrame, font=("Arial", 8), text="J1 Step/Deg")
+J1StepDegLab_grid = ttk_bootstrap.Label(stepDegFrame, font=("Arial", 8), text="J1 Step/Deg")
 J1StepDegLab_grid.grid(row=0, column=0, sticky="w", padx=5, pady=2)
 J1StepDegEntryField = Entry(stepDegFrame, width=5, justify="center")
 J1StepDegEntryField.grid(row=0, column=1, sticky="w", padx=5, pady=2)
 
-J2StepDegLab_grid = Label(stepDegFrame, font=("Arial", 8), text="J2 Step/Deg")
+J2StepDegLab_grid = ttk_bootstrap.Label(stepDegFrame, font=("Arial", 8), text="J2 Step/Deg")
 J2StepDegLab_grid.grid(row=1, column=0, sticky="w", padx=5, pady=2)
 J2StepDegEntryField = Entry(stepDegFrame, width=5, justify="center")
 J2StepDegEntryField.grid(row=1, column=1, sticky="w", padx=5, pady=2)
 
-J3StepDegLab_grid = Label(stepDegFrame, font=("Arial", 8), text="J3 Step/Deg")
+J3StepDegLab_grid = ttk_bootstrap.Label(stepDegFrame, font=("Arial", 8), text="J3 Step/Deg")
 J3StepDegLab_grid.grid(row=2, column=0, sticky="w", padx=5, pady=2)
 J3StepDegEntryField = Entry(stepDegFrame, width=5, justify="center")
 J3StepDegEntryField.grid(row=2, column=1, sticky="w", padx=5, pady=2)
 
-J4StepDegLab_grid = Label(stepDegFrame, font=("Arial", 8), text="J4 Step/Deg")
+J4StepDegLab_grid = ttk_bootstrap.Label(stepDegFrame, font=("Arial", 8), text="J4 Step/Deg")
 J4StepDegLab_grid.grid(row=3, column=0, sticky="w", padx=5, pady=2)
 J4StepDegEntryField = Entry(stepDegFrame, width=5, justify="center")
 J4StepDegEntryField.grid(row=3, column=1, sticky="w", padx=5, pady=2)
 
-J5StepDegLab_grid = Label(stepDegFrame, font=("Arial", 8), text="J5 Step/Deg")
+J5StepDegLab_grid = ttk_bootstrap.Label(stepDegFrame, font=("Arial", 8), text="J5 Step/Deg")
 J5StepDegLab_grid.grid(row=4, column=0, sticky="w", padx=5, pady=2)
 J5StepDegEntryField = Entry(stepDegFrame, width=5, justify="center")
 J5StepDegEntryField.grid(row=4, column=1, sticky="w", padx=5, pady=2)
 
-J6StepDegLab_grid = Label(stepDegFrame, font=("Arial", 8), text="J6 Step/Deg")
+J6StepDegLab_grid = ttk_bootstrap.Label(stepDegFrame, font=("Arial", 8), text="J6 Step/Deg")
 J6StepDegLab_grid.grid(row=5, column=0, sticky="w", padx=5, pady=2)
 J6StepDegEntryField = Entry(stepDegFrame, width=5, justify="center")
 J6StepDegEntryField.grid(row=5, column=1, sticky="w", padx=5, pady=2)
@@ -13218,37 +13227,37 @@ J6StepDegEntryField.grid(row=5, column=1, sticky="w", padx=5, pady=2)
 # ============================================================================
 # Drive Microsteps Frame (Row 0, Column 2)
 # ============================================================================
-driveMSFrame = LabelFrame(tab3, text="Drive Microsteps", padding=10)
+driveMSFrame = ttk_bootstrap.Labelframe(tab3, text="Drive Microsteps", padding=10)
 driveMSFrame.grid(row=0, column=2, sticky="nsew", padx=5, pady=5)
 driveMSFrame.grid_columnconfigure(0, weight=0)
 driveMSFrame.grid_columnconfigure(1, weight=1)
 
-J1DriveMSLab_grid = Label(driveMSFrame, font=("Arial", 8), text="J1 Drive Microstep")
+J1DriveMSLab_grid = ttk_bootstrap.Label(driveMSFrame, font=("Arial", 8), text="J1 Drive Microstep")
 J1DriveMSLab_grid.grid(row=0, column=0, sticky="w", padx=5, pady=2)
 J1DriveMSEntryField = Entry(driveMSFrame, width=5, justify="center")
 J1DriveMSEntryField.grid(row=0, column=1, sticky="w", padx=5, pady=2)
 
-J2DriveMSLab_grid = Label(driveMSFrame, font=("Arial", 8), text="J2 Drive Microstep")
+J2DriveMSLab_grid = ttk_bootstrap.Label(driveMSFrame, font=("Arial", 8), text="J2 Drive Microstep")
 J2DriveMSLab_grid.grid(row=1, column=0, sticky="w", padx=5, pady=2)
 J2DriveMSEntryField = Entry(driveMSFrame, width=5, justify="center")
 J2DriveMSEntryField.grid(row=1, column=1, sticky="w", padx=5, pady=2)
 
-J3DriveMSLab_grid = Label(driveMSFrame, font=("Arial", 8), text="J3 Drive Microstep")
+J3DriveMSLab_grid = ttk_bootstrap.Label(driveMSFrame, font=("Arial", 8), text="J3 Drive Microstep")
 J3DriveMSLab_grid.grid(row=2, column=0, sticky="w", padx=5, pady=2)
 J3DriveMSEntryField = Entry(driveMSFrame, width=5, justify="center")
 J3DriveMSEntryField.grid(row=2, column=1, sticky="w", padx=5, pady=2)
 
-J4DriveMSLab_grid = Label(driveMSFrame, font=("Arial", 8), text="J4 Drive Microstep")
+J4DriveMSLab_grid = ttk_bootstrap.Label(driveMSFrame, font=("Arial", 8), text="J4 Drive Microstep")
 J4DriveMSLab_grid.grid(row=3, column=0, sticky="w", padx=5, pady=2)
 J4DriveMSEntryField = Entry(driveMSFrame, width=5, justify="center")
 J4DriveMSEntryField.grid(row=3, column=1, sticky="w", padx=5, pady=2)
 
-J5DriveMSLab_grid = Label(driveMSFrame, font=("Arial", 8), text="J5 Drive Microstep")
+J5DriveMSLab_grid = ttk_bootstrap.Label(driveMSFrame, font=("Arial", 8), text="J5 Drive Microstep")
 J5DriveMSLab_grid.grid(row=4, column=0, sticky="w", padx=5, pady=2)
 J5DriveMSEntryField = Entry(driveMSFrame, width=5, justify="center")
 J5DriveMSEntryField.grid(row=4, column=1, sticky="w", padx=5, pady=2)
 
-J6DriveMSLab_grid = Label(driveMSFrame, font=("Arial", 8), text="J6 Drive Microstep")
+J6DriveMSLab_grid = ttk_bootstrap.Label(driveMSFrame, font=("Arial", 8), text="J6 Drive Microstep")
 J6DriveMSLab_grid.grid(row=5, column=0, sticky="w", padx=5, pady=2)
 J6DriveMSEntryField = Entry(driveMSFrame, width=5, justify="center")
 J6DriveMSEntryField.grid(row=5, column=1, sticky="w", padx=5, pady=2)
@@ -13256,37 +13265,37 @@ J6DriveMSEntryField.grid(row=5, column=1, sticky="w", padx=5, pady=2)
 # ============================================================================
 # Encoder CPR Frame (Row 1, Column 2)
 # ============================================================================
-encCPRFrame = LabelFrame(tab3, text="Encoder CPR", padding=10)
+encCPRFrame = ttk_bootstrap.Labelframe(tab3, text="Encoder CPR", padding=10)
 encCPRFrame.grid(row=1, column=2, sticky="nsew", padx=5, pady=5)
 encCPRFrame.grid_columnconfigure(0, weight=0)
 encCPRFrame.grid_columnconfigure(1, weight=1)
 
-J1EncCPRLab_grid = Label(encCPRFrame, font=("Arial", 8), text="J1 Encoder CPR")
+J1EncCPRLab_grid = ttk_bootstrap.Label(encCPRFrame, font=("Arial", 8), text="J1 Encoder CPR")
 J1EncCPRLab_grid.grid(row=0, column=0, sticky="w", padx=5, pady=2)
 J1EncCPREntryField = Entry(encCPRFrame, width=5, justify="center")
 J1EncCPREntryField.grid(row=0, column=1, sticky="w", padx=5, pady=2)
 
-J2EncCPRLab_grid = Label(encCPRFrame, font=("Arial", 8), text="J2 Encoder CPR")
+J2EncCPRLab_grid = ttk_bootstrap.Label(encCPRFrame, font=("Arial", 8), text="J2 Encoder CPR")
 J2EncCPRLab_grid.grid(row=1, column=0, sticky="w", padx=5, pady=2)
 J2EncCPREntryField = Entry(encCPRFrame, width=5, justify="center")
 J2EncCPREntryField.grid(row=1, column=1, sticky="w", padx=5, pady=2)
 
-J3EncCPRLab_grid = Label(encCPRFrame, font=("Arial", 8), text="J3 Encoder CPR")
+J3EncCPRLab_grid = ttk_bootstrap.Label(encCPRFrame, font=("Arial", 8), text="J3 Encoder CPR")
 J3EncCPRLab_grid.grid(row=2, column=0, sticky="w", padx=5, pady=2)
 J3EncCPREntryField = Entry(encCPRFrame, width=5, justify="center")
 J3EncCPREntryField.grid(row=2, column=1, sticky="w", padx=5, pady=2)
 
-J4EncCPRLab_grid = Label(encCPRFrame, font=("Arial", 8), text="J4 Encoder CPR")
+J4EncCPRLab_grid = ttk_bootstrap.Label(encCPRFrame, font=("Arial", 8), text="J4 Encoder CPR")
 J4EncCPRLab_grid.grid(row=3, column=0, sticky="w", padx=5, pady=2)
 J4EncCPREntryField = Entry(encCPRFrame, width=5, justify="center")
 J4EncCPREntryField.grid(row=3, column=1, sticky="w", padx=5, pady=2)
 
-J5EncCPRLab_grid = Label(encCPRFrame, font=("Arial", 8), text="J5 Encoder CPR")
+J5EncCPRLab_grid = ttk_bootstrap.Label(encCPRFrame, font=("Arial", 8), text="J5 Encoder CPR")
 J5EncCPRLab_grid.grid(row=4, column=0, sticky="w", padx=5, pady=2)
 J5EncCPREntryField = Entry(encCPRFrame, width=5, justify="center")
 J5EncCPREntryField.grid(row=4, column=1, sticky="w", padx=5, pady=2)
 
-J6EncCPRLab_grid = Label(encCPRFrame, font=("Arial", 8), text="J6 Encoder CPR")
+J6EncCPRLab_grid = ttk_bootstrap.Label(encCPRFrame, font=("Arial", 8), text="J6 Encoder CPR")
 J6EncCPRLab_grid.grid(row=5, column=0, sticky="w", padx=5, pady=2)
 J6EncCPREntryField = Entry(encCPRFrame, width=5, justify="center")
 J6EncCPREntryField.grid(row=5, column=1, sticky="w", padx=5, pady=2)
@@ -13294,7 +13303,7 @@ J6EncCPREntryField.grid(row=5, column=1, sticky="w", padx=5, pady=2)
 # ============================================================================
 # DH Parameters Frame (Row 0, Column 3)
 # ============================================================================
-dhParamsFrame = LabelFrame(tab3, text="DH Parameters", padding=10)
+dhParamsFrame = ttk_bootstrap.Labelframe(tab3, text="DH Parameters", padding=10)
 dhParamsFrame.grid(row=0, column=3, sticky="nsew", padx=5, pady=5)
 
 # Column headers
@@ -13305,14 +13314,14 @@ dhParamsFrame.grid_columnconfigure(3, weight=0, minsize=50)   # DH-d
 dhParamsFrame.grid_columnconfigure(4, weight=0, minsize=50)   # DH-a
 
 # Header row
-Label(dhParamsFrame, font=("Arial", 8), text="").grid(row=0, column=0)
-Label(dhParamsFrame, font=("Arial", 8), text="DH-Θ").grid(row=0, column=1)
-Label(dhParamsFrame, font=("Arial", 8), text="DH-α").grid(row=0, column=2)
-Label(dhParamsFrame, font=("Arial", 8), text="DH-d").grid(row=0, column=3)
-Label(dhParamsFrame, font=("Arial", 8), text="DH-a").grid(row=0, column=4)
+ttk_bootstrap.Label(dhParamsFrame, font=("Arial", 8), text="").grid(row=0, column=0)
+ttk_bootstrap.Label(dhParamsFrame, font=("Arial", 8), text="DH-Θ").grid(row=0, column=1)
+ttk_bootstrap.Label(dhParamsFrame, font=("Arial", 8), text="DH-α").grid(row=0, column=2)
+ttk_bootstrap.Label(dhParamsFrame, font=("Arial", 8), text="DH-d").grid(row=0, column=3)
+ttk_bootstrap.Label(dhParamsFrame, font=("Arial", 8), text="DH-a").grid(row=0, column=4)
 
 # J1 row
-Label(dhParamsFrame, font=("Arial", 8), text="J1").grid(row=1, column=0, sticky="w", padx=5, pady=2)
+ttk_bootstrap.Label(dhParamsFrame, font=("Arial", 8), text="J1").grid(row=1, column=0, sticky="w", padx=5, pady=2)
 J1ΘEntryField = Entry(dhParamsFrame, width=5, justify="center")
 J1ΘEntryField.grid(row=1, column=1, padx=2, pady=2)
 J1αEntryField = Entry(dhParamsFrame, width=5, justify="center")
@@ -13323,7 +13332,7 @@ J1aEntryField = Entry(dhParamsFrame, width=5, justify="center")
 J1aEntryField.grid(row=1, column=4, padx=2, pady=2)
 
 # J2 row
-Label(dhParamsFrame, font=("Arial", 8), text="J2").grid(row=2, column=0, sticky="w", padx=5, pady=2)
+ttk_bootstrap.Label(dhParamsFrame, font=("Arial", 8), text="J2").grid(row=2, column=0, sticky="w", padx=5, pady=2)
 J2ΘEntryField = Entry(dhParamsFrame, width=5, justify="center")
 J2ΘEntryField.grid(row=2, column=1, padx=2, pady=2)
 J2αEntryField = Entry(dhParamsFrame, width=5, justify="center")
@@ -13334,7 +13343,7 @@ J2aEntryField = Entry(dhParamsFrame, width=5, justify="center")
 J2aEntryField.grid(row=2, column=4, padx=2, pady=2)
 
 # J3 row
-Label(dhParamsFrame, font=("Arial", 8), text="J3").grid(row=3, column=0, sticky="w", padx=5, pady=2)
+ttk_bootstrap.Label(dhParamsFrame, font=("Arial", 8), text="J3").grid(row=3, column=0, sticky="w", padx=5, pady=2)
 J3ΘEntryField = Entry(dhParamsFrame, width=5, justify="center")
 J3ΘEntryField.grid(row=3, column=1, padx=2, pady=2)
 J3αEntryField = Entry(dhParamsFrame, width=5, justify="center")
@@ -13345,7 +13354,7 @@ J3aEntryField = Entry(dhParamsFrame, width=5, justify="center")
 J3aEntryField.grid(row=3, column=4, padx=2, pady=2)
 
 # J4 row
-Label(dhParamsFrame, font=("Arial", 8), text="J4").grid(row=4, column=0, sticky="w", padx=5, pady=2)
+ttk_bootstrap.Label(dhParamsFrame, font=("Arial", 8), text="J4").grid(row=4, column=0, sticky="w", padx=5, pady=2)
 J4ΘEntryField = Entry(dhParamsFrame, width=5, justify="center")
 J4ΘEntryField.grid(row=4, column=1, padx=2, pady=2)
 J4αEntryField = Entry(dhParamsFrame, width=5, justify="center")
@@ -13356,7 +13365,7 @@ J4aEntryField = Entry(dhParamsFrame, width=5, justify="center")
 J4aEntryField.grid(row=4, column=4, padx=2, pady=2)
 
 # J5 row
-Label(dhParamsFrame, font=("Arial", 8), text="J5").grid(row=5, column=0, sticky="w", padx=5, pady=2)
+ttk_bootstrap.Label(dhParamsFrame, font=("Arial", 8), text="J5").grid(row=5, column=0, sticky="w", padx=5, pady=2)
 J5ΘEntryField = Entry(dhParamsFrame, width=5, justify="center")
 J5ΘEntryField.grid(row=5, column=1, padx=2, pady=2)
 J5αEntryField = Entry(dhParamsFrame, width=5, justify="center")
@@ -13367,7 +13376,7 @@ J5aEntryField = Entry(dhParamsFrame, width=5, justify="center")
 J5aEntryField.grid(row=5, column=4, padx=2, pady=2)
 
 # J6 row
-Label(dhParamsFrame, font=("Arial", 8), text="J6").grid(row=6, column=0, sticky="w", padx=5, pady=2)
+ttk_bootstrap.Label(dhParamsFrame, font=("Arial", 8), text="J6").grid(row=6, column=0, sticky="w", padx=5, pady=2)
 J6ΘEntryField = Entry(dhParamsFrame, width=5, justify="center")
 J6ΘEntryField.grid(row=6, column=1, padx=2, pady=2)
 J6αEntryField = Entry(dhParamsFrame, width=5, justify="center")
@@ -13380,7 +13389,7 @@ J6aEntryField.grid(row=6, column=4, padx=2, pady=2)
 # ============================================================================
 # Tool Frame Offset Frame (Row 1, Column 3)
 # ============================================================================
-toolFrameFrame = LabelFrame(tab3, text="Tool Frame Offset", padding=10)
+toolFrameFrame = ttk_bootstrap.Labelframe(tab3, text="Tool Frame Offset", padding=10)
 toolFrameFrame.grid(row=1, column=3, sticky="nsew", padx=5, pady=5)
 
 toolFrameFrame.grid_columnconfigure(0, weight=1)
@@ -13391,12 +13400,12 @@ toolFrameFrame.grid_columnconfigure(4, weight=1)
 toolFrameFrame.grid_columnconfigure(5, weight=1)
 
 # Header row
-Label(toolFrameFrame, font=("Arial", 11), text="X").grid(row=0, column=0, padx=2, pady=2)
-Label(toolFrameFrame, font=("Arial", 11), text="Y").grid(row=0, column=1, padx=2, pady=2)
-Label(toolFrameFrame, font=("Arial", 11), text="Z").grid(row=0, column=2, padx=2, pady=1)
-Label(toolFrameFrame, font=("Arial", 11), text="Rz").grid(row=0, column=3, padx=2, pady=2)
-Label(toolFrameFrame, font=("Arial", 11), text="Ry").grid(row=0, column=4, padx=2, pady=2)
-Label(toolFrameFrame, font=("Arial", 11), text="Rx").grid(row=0, column=5, padx=2, pady=2)
+ttk_bootstrap.Label(toolFrameFrame, font=("Arial", 11), text="X").grid(row=0, column=0, padx=2, pady=2)
+ttk_bootstrap.Label(toolFrameFrame, font=("Arial", 11), text="Y").grid(row=0, column=1, padx=2, pady=2)
+ttk_bootstrap.Label(toolFrameFrame, font=("Arial", 11), text="Z").grid(row=0, column=2, padx=2, pady=1)
+ttk_bootstrap.Label(toolFrameFrame, font=("Arial", 11), text="Rz").grid(row=0, column=3, padx=2, pady=2)
+ttk_bootstrap.Label(toolFrameFrame, font=("Arial", 11), text="Ry").grid(row=0, column=4, padx=2, pady=2)
+ttk_bootstrap.Label(toolFrameFrame, font=("Arial", 11), text="Rx").grid(row=0, column=5, padx=2, pady=2)
 
 # Entry fields row
 TFxEntryField = Entry(toolFrameFrame, width=4, justify="center")
@@ -13419,7 +13428,7 @@ DisableWristCbut.grid(row=2, column=0, columnspan=6, sticky="w", padx=5, pady=5)
 # ============================================================================
 # Defaults Frame (Row 0-1, Column 4)
 # ============================================================================
-defaultsFrame = LabelFrame(tab3, text="Defaults", padding=10)
+defaultsFrame = ttk_bootstrap.Labelframe(tab3, text="Defaults", padding=10)
 defaultsFrame.grid(row=0, column=4, rowspan=2, sticky="nsew", padx=5, pady=5)
 
 defaultsFrame.grid_columnconfigure(0, weight=1)
@@ -13449,25 +13458,25 @@ saveCustomBut.grid(row=6, column=0, padx=5, pady=5)
 
 
 # #### TOOL FRAME ####
-# ToolFrameLab = Label(tab3, text = "Tool Frame Offset")
+# ToolFrameLab = ttk_bootstrap.Label(tab3, text = "Tool Frame Offset")
 # ToolFrameLab.place(x=970, y=60)
 # 
-# UFxLab = Label(tab3, font=("Arial", 11), text = "X")
+# UFxLab = ttk_bootstrap.Label(tab3, font=("Arial", 11), text = "X")
 # UFxLab.place(x=920, y=90)
 # 
-# UFyLab = Label(tab3, font=("Arial", 11), text = "Y")
+# UFyLab = ttk_bootstrap.Label(tab3, font=("Arial", 11), text = "Y")
 # UFyLab.place(x=960, y=90)
 # 
-# UFzLab = Label(tab3, font=("Arial", 11), text = "Z")
+# UFzLab = ttk_bootstrap.Label(tab3, font=("Arial", 11), text = "Z")
 # UFzLab.place(x=1000, y=90)
 # 
-# UFRxLab = Label(tab3, font=("Arial", 11), text = "Rz")
+# UFRxLab = ttk_bootstrap.Label(tab3, font=("Arial", 11), text = "Rz")
 # UFRxLab.place(x=1040, y=90)
 # 
-# UFRyLab = Label(tab3, font=("Arial", 11), text = "Ry")
+# UFRyLab = ttk_bootstrap.Label(tab3, font=("Arial", 11), text = "Ry")
 # UFRyLab.place(x=1080, y=90)
 # 
-# UFRzLab = Label(tab3, font=("Arial", 11), text = "Rx")
+# UFRzLab = ttk_bootstrap.Label(tab3, font=("Arial", 11), text = "Rx")
 # UFRzLab.place(x=1120, y=90)
 # 
 # TFxEntryField = Entry(tab3,width=4,justify="center")
@@ -13489,23 +13498,23 @@ saveCustomBut.grid(row=6, column=0, padx=5, pady=5)
 
 # # ####  MOTOR DIRECTIONS ####
 
-# # J1MotDirLab = Label(tab3, font=("Arial", 8), text = "J1 Motor Direction")
+# # J1MotDirLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J1 Motor Direction")
 # # J1MotDirLab.place(x=10, y=20)
-# # J2MotDirLab = Label(tab3, font=("Arial", 8), text = "J2 Motor Direction")
+# # J2MotDirLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J2 Motor Direction")
 # # J2MotDirLab.place(x=10, y=45)
-# # J3MotDirLab = Label(tab3, font=("Arial", 8), text = "J3 Motor Direction")
+# # J3MotDirLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J3 Motor Direction")
 # # J3MotDirLab.place(x=10, y=70)
-# # J4MotDirLab = Label(tab3, font=("Arial", 8), text = "J4 Motor Direction")
+# # J4MotDirLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J4 Motor Direction")
 # # J4MotDirLab.place(x=10, y=95)
-# # J5MotDirLab = Label(tab3, font=("Arial", 8), text = "J5 Motor Direction")
+# # J5MotDirLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J5 Motor Direction")
 # # J5MotDirLab.place(x=10, y=120)
-# # J6MotDirLab = Label(tab3, font=("Arial", 8), text = "J6 Motor Direction")
+# # J6MotDirLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J6 Motor Direction")
 # # J6MotDirLab.place(x=10, y=145)
-# # J7MotDirLab = Label(tab3, font=("Arial", 8), text = "J7 Motor Direction")
+# # J7MotDirLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J7 Motor Direction")
 # # J7MotDirLab.place(x=10, y=170)
-# # J8MotDirLab = Label(tab3, font=("Arial", 8), text = "J8 Motor Direction")
+# # J8MotDirLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J8 Motor Direction")
 # # J8MotDirLab.place(x=10, y=195)
-# # J9MotDirLab = Label(tab3, font=("Arial", 8), text = "J9 Motor Direction")
+# # J9MotDirLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J9 Motor Direction")
 # # J9MotDirLab.place(x=10, y=220)
 
 # # J1MotDirEntryField = Entry(tab3,width=5,justify="center")
@@ -13530,23 +13539,23 @@ saveCustomBut.grid(row=6, column=0, padx=5, pady=5)
 
 # # ####  CALIBRATION DIRECTIONS ####
 
-# # J1CalDirLab = Label(tab3, font=("Arial", 8), text = "J1 Calibration Dir.")
+# # J1CalDirLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J1 Calibration Dir.")
 # # J1CalDirLab.place(x=10, y=280)
-# # J2CalDirLab = Label(tab3, font=("Arial", 8), text = "J2 Calibration Dir.")
+# # J2CalDirLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J2 Calibration Dir.")
 # # J2CalDirLab.place(x=10, y=305)
-# # J3CalDirLab = Label(tab3, font=("Arial", 8), text = "J3 Calibration Dir.")
+# # J3CalDirLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J3 Calibration Dir.")
 # # J3CalDirLab.place(x=10, y=330)
-# # J4CalDirLab = Label(tab3, font=("Arial", 8), text = "J4 Calibration Dir.")
+# # J4CalDirLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J4 Calibration Dir.")
 # # J4CalDirLab.place(x=10, y=355)
-# # J5CalDirLab = Label(tab3, font=("Arial", 8), text = "J5 Calibration Dir.")
+# # J5CalDirLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J5 Calibration Dir.")
 # # J5CalDirLab.place(x=10, y=380)
-# # J6CalDirLab = Label(tab3, font=("Arial", 8), text = "J6 Calibration Dir.")
+# # J6CalDirLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J6 Calibration Dir.")
 # # J6CalDirLab.place(x=10, y=405)
-# # J7CalDirLab = Label(tab3, font=("Arial", 8), text = "J7 Calibration Dir.")
+# # J7CalDirLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J7 Calibration Dir.")
 # # J7CalDirLab.place(x=10, y=430)
-# # J8CalDirLab = Label(tab3, font=("Arial", 8), text = "J8 Calibration Dir.")
+# # J8CalDirLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J8 Calibration Dir.")
 # # J8CalDirLab.place(x=10, y=455)
-# # J9CalDirLab = Label(tab3, font=("Arial", 8), text = "J9 Calibration Dir.")
+# # J9CalDirLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J9 Calibration Dir.")
 # # J9CalDirLab.place(x=10, y=480)
 
 # # J1CalDirEntryField = Entry(tab3,width=5,justify="center")
@@ -13569,29 +13578,29 @@ saveCustomBut.grid(row=6, column=0, padx=5, pady=5)
 # # J9CalDirEntryField.place(x=110, y=480)
 
 # # ### axis limits
-# # J1PosLimLab = Label(tab3, font=("Arial", 8), text = "J1 Pos Limit")
+# # J1PosLimLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J1 Pos Limit")
 # # J1PosLimLab.place(x=200, y=20)
-# # J1NegLimLab = Label(tab3, font=("Arial", 8), text = "J1 Neg Limit")
+# # J1NegLimLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J1 Neg Limit")
 # # J1NegLimLab.place(x=200, y=45)
-# # J2PosLimLab = Label(tab3, font=("Arial", 8), text = "J2 Pos Limit")
+# # J2PosLimLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J2 Pos Limit")
 # # J2PosLimLab.place(x=200, y=70)
-# # J2NegLimLab = Label(tab3, font=("Arial", 8), text = "J2 Neg Limit")
+# # J2NegLimLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J2 Neg Limit")
 # # J2NegLimLab.place(x=200, y=95)
-# # J3PosLimLab = Label(tab3, font=("Arial", 8), text = "J3 Pos Limit")
+# # J3PosLimLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J3 Pos Limit")
 # # J3PosLimLab.place(x=200, y=120)
-# # J3NegLimLab = Label(tab3, font=("Arial", 8), text = "J3 Neg Limit")
+# # J3NegLimLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J3 Neg Limit")
 # # J3NegLimLab.place(x=200, y=145)
-# # J4PosLimLab = Label(tab3, font=("Arial", 8), text = "J4 Pos Limit")
+# # J4PosLimLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J4 Pos Limit")
 # # J4PosLimLab.place(x=200, y=170)
-# # J4NegLimLab = Label(tab3, font=("Arial", 8), text = "J4 Neg Limit")
+# # J4NegLimLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J4 Neg Limit")
 # # J4NegLimLab.place(x=200, y=195)
-# # J5PosLimLab = Label(tab3, font=("Arial", 8), text = "J5 Pos Limit")
+# # J5PosLimLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J5 Pos Limit")
 # # J5PosLimLab.place(x=200, y=220)
-# # J5NegLimLab = Label(tab3, font=("Arial", 8), text = "J5 Neg Limit")
+# # J5NegLimLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J5 Neg Limit")
 # # J5NegLimLab.place(x=200, y=245)
-# # J6PosLimLab = Label(tab3, font=("Arial", 8), text = "J6 Pos Limit")
+# # J6PosLimLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J6 Pos Limit")
 # # J6PosLimLab.place(x=200, y=270)
-# # J6NegLimLab = Label(tab3, font=("Arial", 8), text = "J6 Neg Limit")
+# # J6NegLimLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J6 Neg Limit")
 # # J6NegLimLab.place(x=200, y=295)
 
 # # J1PosLimEntryField = Entry(tab3,width=5,justify="center")
@@ -13621,17 +13630,17 @@ saveCustomBut.grid(row=6, column=0, padx=5, pady=5)
 
 
 ### steps per degress
-# # J1StepDegLab = Label(tab3, font=("Arial", 8), text = "J1 Step/Deg")
+# # J1StepDegLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J1 Step/Deg")
 # # J1StepDegLab.place(x=200, y=345)
-# # J2StepDegLab = Label(tab3, font=("Arial", 8), text = "J2 Step/Deg")
+# # J2StepDegLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J2 Step/Deg")
 # # J2StepDegLab.place(x=200, y=370)
-# # J3StepDegLab = Label(tab3, font=("Arial", 8), text = "J3 Step/Deg")
+# # J3StepDegLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J3 Step/Deg")
 # # J3StepDegLab.place(x=200, y=395)
-# # J4StepDegLab = Label(tab3, font=("Arial", 8), text = "J4 Step/Deg")
+# # J4StepDegLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J4 Step/Deg")
 # # J4StepDegLab.place(x=200, y=420)
-# # J5StepDegLab = Label(tab3, font=("Arial", 8), text = "J5 Step/Deg")
+# # J5StepDegLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J5 Step/Deg")
 # # J5StepDegLab.place(x=200, y=445)
-# # J6StepDegLab = Label(tab3, font=("Arial", 8), text = "J6 Step/Deg")
+# # J6StepDegLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J6 Step/Deg")
 # # J6StepDegLab.place(x=200, y=470)
 
 # # J1StepDegEntryField = Entry(tab3,width=5,justify="center")
@@ -13649,17 +13658,17 @@ saveCustomBut.grid(row=6, column=0, padx=5, pady=5)
 
 
 ### DRIVER STEPS
-# # J1DriveMSLab = Label(tab3, font=("Arial", 8), text = "J1 Drive Microstep")
+# # J1DriveMSLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J1 Drive Microstep")
 # # J1DriveMSLab.place(x=390, y=20)
-# # J2DriveMSLab = Label(tab3, font=("Arial", 8), text = "J2 Drive Microstep")
+# # J2DriveMSLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J2 Drive Microstep")
 # # J2DriveMSLab.place(x=390, y=45)
-# # J3DriveMSLab = Label(tab3, font=("Arial", 8), text = "J3 Drive Microstep")
+# # J3DriveMSLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J3 Drive Microstep")
 # # J3DriveMSLab.place(x=390, y=70)
-# # J4DriveMSLab = Label(tab3, font=("Arial", 8), text = "J4 Drive Microstep")
+# # J4DriveMSLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J4 Drive Microstep")
 # # J4DriveMSLab.place(x=390, y=95)
-# # J5DriveMSLab = Label(tab3, font=("Arial", 8), text = "J5 Drive Microstep")
+# # J5DriveMSLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J5 Drive Microstep")
 # # J5DriveMSLab.place(x=390, y=120)
-# # J6DriveMSLab = Label(tab3, font=("Arial", 8), text = "J6 Drive Microstep")
+# # J6DriveMSLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J6 Drive Microstep")
 # # J6DriveMSLab.place(x=390, y=145)
 
 # # J1DriveMSEntryField = Entry(tab3,width=5,justify="center")
@@ -13677,17 +13686,17 @@ saveCustomBut.grid(row=6, column=0, padx=5, pady=5)
 
 
 ###ENCODER CPR
-# # J1EncCPRLab = Label(tab3, font=("Arial", 8), text = "J1 Encoder CPR")
+# # J1EncCPRLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J1 Encoder CPR")
 # # J1EncCPRLab.place(x=390, y=195)
-# # J2EncCPRLab = Label(tab3, font=("Arial", 8), text = "J2 Encoder CPR")
+# # J2EncCPRLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J2 Encoder CPR")
 # # J2EncCPRLab.place(x=390, y=220)
-# # J3EncCPRLab = Label(tab3, font=("Arial", 8), text = "J3 Encoder CPR")
+# # J3EncCPRLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J3 Encoder CPR")
 # # J3EncCPRLab.place(x=390, y=245)
-# # J4EncCPRLab = Label(tab3, font=("Arial", 8), text = "J4 Encoder CPR")
+# # J4EncCPRLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J4 Encoder CPR")
 # # J4EncCPRLab.place(x=390, y=270)
-# # J5EncCPRLab = Label(tab3, font=("Arial", 8), text = "J5 Encoder CPR")
+# # J5EncCPRLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J5 Encoder CPR")
 # # J5EncCPRLab.place(x=390, y=295)
-# # J6EncCPRLab = Label(tab3, font=("Arial", 8), text = "J6 Encoder CPR")
+# # J6EncCPRLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J6 Encoder CPR")
 # # J6EncCPRLab.place(x=390, y=320)
 
 # # J1EncCPREntryField = Entry(tab3,width=5,justify="center")
@@ -13707,26 +13716,26 @@ saveCustomBut.grid(row=6, column=0, padx=5, pady=5)
 # ### DH PARAMS
 # 
 # ### DRIVER STEPS
-# J1DHparamLab = Label(tab3, font=("Arial", 8), text = "J1")
+# J1DHparamLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J1")
 # J1DHparamLab.place(x=600, y=45)
-# J1DHparamLab = Label(tab3, font=("Arial", 8), text = "J2")
+# J1DHparamLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J2")
 # J1DHparamLab.place(x=600, y=70)
-# J1DHparamLab = Label(tab3, font=("Arial", 8), text = "J3")
+# J1DHparamLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J3")
 # J1DHparamLab.place(x=600, y=95)
-# J1DHparamLab = Label(tab3, font=("Arial", 8), text = "J4")
+# J1DHparamLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J4")
 # J1DHparamLab.place(x=600, y=120)
-# J1DHparamLab = Label(tab3, font=("Arial", 8), text = "J5")
+# J1DHparamLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J5")
 # J1DHparamLab.place(x=600, y=145)
-# J1DHparamLab = Label(tab3, font=("Arial", 8), text = "J6")
+# J1DHparamLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "J6")
 # J1DHparamLab.place(x=600, y=170)
 # 
-# ΘDHparamLab = Label(tab3, font=("Arial", 8), text = "DH-Θ")
+# ΘDHparamLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "DH-Θ")
 # ΘDHparamLab.place(x=645, y=20)
-# αDHparamLab = Label(tab3, font=("Arial", 8), text = "DH-α")
+# αDHparamLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "DH-α")
 # αDHparamLab.place(x=700, y=20)
-# dDHparamLab = Label(tab3, font=("Arial", 8), text = "DH-d")
+# dDHparamLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "DH-d")
 # dDHparamLab.place(x=755, y=20)
-# aDHparamLab = Label(tab3, font=("Arial", 8), text = "DH-a")
+# aDHparamLab = ttk_bootstrap.Label(tab3, font=("Arial", 8), text = "DH-a")
 # aDHparamLab.place(x=810, y=20)
 # 
 # 
@@ -13827,7 +13836,7 @@ tab4.grid_columnconfigure(3, weight=1)  # Remaining space
 # ============================================================================
 # 5v IO BOARD Frame (Row 0, Column 0)
 # ============================================================================
-ioBoardFrame = LabelFrame(tab4, text="5v IO BOARD", padding=10)
+ioBoardFrame = ttk_bootstrap.Labelframe(tab4, text="5v IO BOARD", padding=10)
 ioBoardFrame.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
 
 ioBoardFrame.grid_columnconfigure(0, weight=0, minsize=60)   # Servo buttons
@@ -13845,112 +13854,112 @@ for row in range(12):
 # Servo 0 on
 servo0onBut = Button(ioBoardFrame, text="Servo 0", command=Servo0on)
 servo0onBut.grid(row=0, column=0, sticky="ew", padx=2, pady=1)
-Label(ioBoardFrame, text="=").grid(row=0, column=1, padx=2, pady=1)
+ttk_bootstrap.Label(ioBoardFrame, text="=").grid(row=0, column=1, padx=2, pady=1)
 servo0onEntryField = Entry(ioBoardFrame, width=4, justify="center")
 servo0onEntryField.grid(row=0, column=2, padx=2, pady=1)
 
 # DO on (row 0)
 DO1onBut = Button(ioBoardFrame, text="DO on", command=DO1on)
 DO1onBut.grid(row=0, column=4, sticky="ew", padx=2, pady=1)
-Label(ioBoardFrame, text="=").grid(row=0, column=5, padx=2, pady=1)
+ttk_bootstrap.Label(ioBoardFrame, text="=").grid(row=0, column=5, padx=2, pady=1)
 DO1onEntryField = Entry(ioBoardFrame, width=4, justify="center")
 DO1onEntryField.grid(row=0, column=6, padx=2, pady=1)
 
 # Servo 0 off
 servo0offBut = Button(ioBoardFrame, text="Servo 0", command=Servo0off)
 servo0offBut.grid(row=1, column=0, sticky="ew", padx=2, pady=1)
-Label(ioBoardFrame, text="=").grid(row=1, column=1, padx=2, pady=1)
+ttk_bootstrap.Label(ioBoardFrame, text="=").grid(row=1, column=1, padx=2, pady=1)
 servo0offEntryField = Entry(ioBoardFrame, width=4, justify="center")
 servo0offEntryField.grid(row=1, column=2, padx=2, pady=1)
 
 # DO off (row 1)
 DO1offBut = Button(ioBoardFrame, text="DO off", command=DO1off)
 DO1offBut.grid(row=1, column=4, sticky="ew", padx=2, pady=1)
-Label(ioBoardFrame, text="=").grid(row=1, column=5, padx=2, pady=1)
+ttk_bootstrap.Label(ioBoardFrame, text="=").grid(row=1, column=5, padx=2, pady=1)
 DO1offEntryField = Entry(ioBoardFrame, width=4, justify="center")
 DO1offEntryField.grid(row=1, column=6, padx=2, pady=1)
 
 # Servo 1 on
 servo1onBut = Button(ioBoardFrame, text="Servo 1", command=Servo1on)
 servo1onBut.grid(row=2, column=0, sticky="ew", padx=2, pady=1)
-Label(ioBoardFrame, text="=").grid(row=2, column=1, padx=2, pady=1)
+ttk_bootstrap.Label(ioBoardFrame, text="=").grid(row=2, column=1, padx=2, pady=1)
 servo1onEntryField = Entry(ioBoardFrame, width=4, justify="center")
 servo1onEntryField.grid(row=2, column=2, padx=2, pady=1)
 
 # DO on (row 2)
 DO2onBut = Button(ioBoardFrame, text="DO on", command=DO2on)
 DO2onBut.grid(row=2, column=4, sticky="ew", padx=2, pady=1)
-Label(ioBoardFrame, text="=").grid(row=2, column=5, padx=2, pady=1)
+ttk_bootstrap.Label(ioBoardFrame, text="=").grid(row=2, column=5, padx=2, pady=1)
 DO2onEntryField = Entry(ioBoardFrame, width=4, justify="center")
 DO2onEntryField.grid(row=2, column=6, padx=2, pady=1)
 
 # Servo 1 off
 servo1offBut = Button(ioBoardFrame, text="Servo 1", command=Servo1off)
 servo1offBut.grid(row=3, column=0, sticky="ew", padx=2, pady=1)
-Label(ioBoardFrame, text="=").grid(row=3, column=1, padx=2, pady=1)
+ttk_bootstrap.Label(ioBoardFrame, text="=").grid(row=3, column=1, padx=2, pady=1)
 servo1offEntryField = Entry(ioBoardFrame, width=4, justify="center")
 servo1offEntryField.grid(row=3, column=2, padx=2, pady=1)
 
 # DO off (row 3)
 DO2offBut = Button(ioBoardFrame, text="DO off", command=DO2off)
 DO2offBut.grid(row=3, column=4, sticky="ew", padx=2, pady=1)
-Label(ioBoardFrame, text="=").grid(row=3, column=5, padx=2, pady=1)
+ttk_bootstrap.Label(ioBoardFrame, text="=").grid(row=3, column=5, padx=2, pady=1)
 DO2offEntryField = Entry(ioBoardFrame, width=4, justify="center")
 DO2offEntryField.grid(row=3, column=6, padx=2, pady=1)
 
 # Servo 2 on
 servo2onBut = Button(ioBoardFrame, text="Servo 2", command=Servo2on)
 servo2onBut.grid(row=4, column=0, sticky="ew", padx=2, pady=1)
-Label(ioBoardFrame, text="=").grid(row=4, column=1, padx=2, pady=1)
+ttk_bootstrap.Label(ioBoardFrame, text="=").grid(row=4, column=1, padx=2, pady=1)
 servo2onEntryField = Entry(ioBoardFrame, width=4, justify="center")
 servo2onEntryField.grid(row=4, column=2, padx=2, pady=1)
 
 # DO on (row 4)
 DO3onBut = Button(ioBoardFrame, text="DO on", command=DO3on)
 DO3onBut.grid(row=4, column=4, sticky="ew", padx=2, pady=1)
-Label(ioBoardFrame, text="=").grid(row=4, column=5, padx=2, pady=1)
+ttk_bootstrap.Label(ioBoardFrame, text="=").grid(row=4, column=5, padx=2, pady=1)
 DO3onEntryField = Entry(ioBoardFrame, width=4, justify="center")
 DO3onEntryField.grid(row=4, column=6, padx=2, pady=1)
 
 # Servo 2 off
 servo2offBut = Button(ioBoardFrame, text="Servo 2", command=Servo2off)
 servo2offBut.grid(row=5, column=0, sticky="ew", padx=2, pady=1)
-Label(ioBoardFrame, text="=").grid(row=5, column=1, padx=2, pady=1)
+ttk_bootstrap.Label(ioBoardFrame, text="=").grid(row=5, column=1, padx=2, pady=1)
 servo2offEntryField = Entry(ioBoardFrame, width=4, justify="center")
 servo2offEntryField.grid(row=5, column=2, padx=2, pady=1)
 
 # DO off (row 5)
 DO3offBut = Button(ioBoardFrame, text="DO off", command=DO3off)
 DO3offBut.grid(row=5, column=4, sticky="ew", padx=2, pady=1)
-Label(ioBoardFrame, text="=").grid(row=5, column=5, padx=2, pady=1)
+ttk_bootstrap.Label(ioBoardFrame, text="=").grid(row=5, column=5, padx=2, pady=1)
 DO3offEntryField = Entry(ioBoardFrame, width=4, justify="center")
 DO3offEntryField.grid(row=5, column=6, padx=2, pady=1)
 
 # Servo 3 on
 servo3onBut = Button(ioBoardFrame, text="Servo 3", command=Servo3on)
 servo3onBut.grid(row=6, column=0, sticky="ew", padx=2, pady=1)
-Label(ioBoardFrame, text="=").grid(row=6, column=1, padx=2, pady=1)
+ttk_bootstrap.Label(ioBoardFrame, text="=").grid(row=6, column=1, padx=2, pady=1)
 servo3onEntryField = Entry(ioBoardFrame, width=4, justify="center")
 servo3onEntryField.grid(row=6, column=2, padx=2, pady=1)
 
 # DO on (row 6)
 DO4onBut = Button(ioBoardFrame, text="DO on", command=DO4on)
 DO4onBut.grid(row=6, column=4, sticky="ew", padx=2, pady=1)
-Label(ioBoardFrame, text="=").grid(row=6, column=5, padx=2, pady=1)
+ttk_bootstrap.Label(ioBoardFrame, text="=").grid(row=6, column=5, padx=2, pady=1)
 DO4onEntryField = Entry(ioBoardFrame, width=4, justify="center")
 DO4onEntryField.grid(row=6, column=6, padx=2, pady=1)
 
 # Servo 3 off
 servo3offBut = Button(ioBoardFrame, text="Servo 3", command=Servo3off)
 servo3offBut.grid(row=7, column=0, sticky="ew", padx=2, pady=1)
-Label(ioBoardFrame, text="=").grid(row=7, column=1, padx=2, pady=1)
+ttk_bootstrap.Label(ioBoardFrame, text="=").grid(row=7, column=1, padx=2, pady=1)
 servo3offEntryField = Entry(ioBoardFrame, width=4, justify="center")
 servo3offEntryField.grid(row=7, column=2, padx=2, pady=1)
 
 # DO off (row 7)
 DO4offBut = Button(ioBoardFrame, text="DO off", command=DO4off)
 DO4offBut.grid(row=7, column=4, sticky="ew", padx=2, pady=1)
-Label(ioBoardFrame, text="=").grid(row=7, column=5, padx=2, pady=1)
+ttk_bootstrap.Label(ioBoardFrame, text="=").grid(row=7, column=5, padx=2, pady=1)
 DO4offEntryField = Entry(ioBoardFrame, width=4, justify="center")
 DO4offEntryField.grid(row=7, column=6, padx=2, pady=1)
 
@@ -13959,7 +13968,7 @@ DO4offEntryField.grid(row=7, column=6, padx=2, pady=1)
 # DO on (row 8) - no servo
 DO5onBut = Button(ioBoardFrame, text="DO on", command=DO5on)
 DO5onBut.grid(row=8, column=4, sticky="ew", padx=2, pady=1)
-Label(ioBoardFrame, text="=").grid(row=8, column=5, padx=2, pady=1)
+ttk_bootstrap.Label(ioBoardFrame, text="=").grid(row=8, column=5, padx=2, pady=1)
 DO5onEntryField = Entry(ioBoardFrame, width=4, justify="center")
 DO5onEntryField.grid(row=8, column=6, padx=2, pady=1)
 
@@ -13968,7 +13977,7 @@ DO5onEntryField.grid(row=8, column=6, padx=2, pady=1)
 # DO off (row 9)
 DO5offBut = Button(ioBoardFrame, text="DO off", command=DO5off)
 DO5offBut.grid(row=9, column=4, sticky="ew", padx=2, pady=1)
-Label(ioBoardFrame, text="=").grid(row=9, column=5, padx=2, pady=1)
+ttk_bootstrap.Label(ioBoardFrame, text="=").grid(row=9, column=5, padx=2, pady=1)
 DO5offEntryField = Entry(ioBoardFrame, width=4, justify="center")
 DO5offEntryField.grid(row=9, column=6, padx=2, pady=1)
 
@@ -13977,7 +13986,7 @@ DO5offEntryField.grid(row=9, column=6, padx=2, pady=1)
 # DO on (row 10)
 DO6onBut = Button(ioBoardFrame, text="DO on", command=DO6on)
 DO6onBut.grid(row=10, column=4, sticky="ew", padx=2, pady=1)
-Label(ioBoardFrame, text="=").grid(row=10, column=5, padx=2, pady=1)
+ttk_bootstrap.Label(ioBoardFrame, text="=").grid(row=10, column=5, padx=2, pady=1)
 DO6onEntryField = Entry(ioBoardFrame, width=4, justify="center")
 DO6onEntryField.grid(row=10, column=6, padx=2, pady=1)
 
@@ -13986,25 +13995,25 @@ DO6onEntryField.grid(row=10, column=6, padx=2, pady=1)
 # DO off (row 11)
 DO6offBut = Button(ioBoardFrame, text="DO off", command=DO6off)
 DO6offBut.grid(row=11, column=4, sticky="ew", padx=2, pady=1)
-Label(ioBoardFrame, text="=").grid(row=11, column=5, padx=2, pady=1)
+ttk_bootstrap.Label(ioBoardFrame, text="=").grid(row=11, column=5, padx=2, pady=1)
 DO6offEntryField = Entry(ioBoardFrame, width=4, justify="center")
 DO6offEntryField.grid(row=11, column=6, padx=2, pady=1)
 
 # ============================================================================
 # AUX COM DEVICE Frame (Row 0, Column 1)
 # ============================================================================
-auxComFrame = LabelFrame(tab4, text="AUX COM DEVICE", padding=10)
+auxComFrame = ttk_bootstrap.Labelframe(tab4, text="AUX COM DEVICE", padding=10)
 auxComFrame.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
 
 auxComFrame.grid_columnconfigure(0, weight=1)
 
 # Aux Com Port
-Label(auxComFrame, text="Aux Com Port").grid(row=0, column=0, sticky="w", padx=(5,2), pady=5)
+ttk_bootstrap.Label(auxComFrame, text="Aux Com Port").grid(row=0, column=0, sticky="w", padx=(5,2), pady=5)
 com3PortEntryField = Entry(auxComFrame, width=10, justify="left")
 com3PortEntryField.grid(row=0, column=1, sticky="w", padx=(2,5), pady=5)
 
 # Char to Read
-Label(auxComFrame, text="Char to Read").grid(row=1, column=0, sticky="w", padx=(5,2), pady=5)
+ttk_bootstrap.Label(auxComFrame, text="Char to Read").grid(row=1, column=0, sticky="w", padx=(5,2), pady=5)
 com3charPortEntryField = Entry(auxComFrame, width=10, justify="left")
 com3charPortEntryField.grid(row=1, column=1, sticky="w", padx=(2,5), pady=5)
 
@@ -14019,23 +14028,23 @@ com3outPortEntryField.grid(row=3, column=0, columnspan=2, sticky="ew", padx=5, p
 # ============================================================================
 # MODBUS DEVICE Frame (Row 0, Column 2)
 # ============================================================================
-modbusFrame = LabelFrame(tab4, text="MODBUS DEVICE", padding=10)
+modbusFrame = ttk_bootstrap.Labelframe(tab4, text="MODBUS DEVICE", padding=10)
 modbusFrame.grid(row=0, column=2, sticky="nsew", padx=5, pady=5)
 
 modbusFrame.grid_columnconfigure(0, weight=1)
 
 # Slave ID
-Label(modbusFrame, text="Slave ID").grid(row=0, column=0, sticky="w", padx=(5,2), pady=5)
+ttk_bootstrap.Label(modbusFrame, text="Slave ID").grid(row=0, column=0, sticky="w", padx=(5,2), pady=5)
 MBslaveEntryField = Entry(modbusFrame, width=10, justify="left")
 MBslaveEntryField.grid(row=0, column=1, sticky="w", padx=(2,5), pady=5)
 
 # Modbus Address
-Label(modbusFrame, text="Modbus Address").grid(row=1, column=0, sticky="w", padx=(5,2), pady=5)
+ttk_bootstrap.Label(modbusFrame, text="Modbus Address").grid(row=1, column=0, sticky="w", padx=(5,2), pady=5)
 MBaddressEntryField = Entry(modbusFrame, width=10, justify="left")
 MBaddressEntryField.grid(row=1, column=1, sticky="w", padx=(2,5), pady=5)
 
 # Operation Value
-Label(modbusFrame, text="Operation Value").grid(row=2, column=0, sticky="w", padx=(5,2), pady=5)
+ttk_bootstrap.Label(modbusFrame, text="Operation Value").grid(row=2, column=0, sticky="w", padx=(5,2), pady=5)
 MBoperValEntryField = Entry(modbusFrame, width=10, justify="left")
 MBoperValEntryField.grid(row=2, column=1, sticky="w", padx=(2,5), pady=5)
 
@@ -14059,29 +14068,29 @@ MBwriteRegBut = Button(modbusFrame, text="Write Register", width=30, command=MBw
 MBwriteRegBut.grid(row=8, column=0, columnspan=2, sticky="ew", padx=5, pady=2)
 
 # Output Response
-Label(modbusFrame, text="Output Response:").grid(row=9, column=0, columnspan=2, sticky="w", padx=5, pady=(10,2))
+ttk_bootstrap.Label(modbusFrame, text="Output Response:").grid(row=9, column=0, columnspan=2, sticky="w", padx=5, pady=(10,2))
 MBoutputEntryField = Entry(modbusFrame, width=33, justify="center")
 MBoutputEntryField.grid(row=10, column=0, columnspan=2, sticky="ew", padx=5, pady=2)
 
 # ============================================================================
 # Information Frame (Row 1, Column 0-2, spans 3 columns)
 # ============================================================================
-infoFrame = LabelFrame(tab4, text="Information", padding=10)
+infoFrame = ttk_bootstrap.Labelframe(tab4, text="Information", padding=10)
 infoFrame.grid(row=1, column=0, columnspan=3, sticky="ew", padx=5, pady=5)
 
 infoFrame.grid_columnconfigure(0, weight=1)
 
-Label(infoFrame, text="The following IO are available when using the default 5v Nano board for IO:   Inputs = 2-7  /  Outputs = 8-13  /  Servos = A0-A7").grid(row=0, column=0, sticky="w", padx=5, pady=2)
+ttk_bootstrap.Label(infoFrame, text="The following IO are available when using the default 5v Nano board for IO:   Inputs = 2-7  /  Outputs = 8-13  /  Servos = A0-A7").grid(row=0, column=0, sticky="w", padx=5, pady=2)
 
-Label(infoFrame, text="The following IO are available when using the default 5v Mega board for IO:   Inputs = 0-27  /  Outputs = 28-53  /  Servos = A0-A7").grid(row=1, column=0, sticky="w", padx=5, pady=2)
+ttk_bootstrap.Label(infoFrame, text="The following IO are available when using the default 5v Mega board for IO:   Inputs = 0-27  /  Outputs = 28-53  /  Servos = A0-A7").grid(row=1, column=0, sticky="w", padx=5, pady=2)
 
-Label(infoFrame, text="Please review this tutorial video on using 5v IO boards:").grid(row=2, column=0, sticky="w", padx=5, pady=2)
+ttk_bootstrap.Label(infoFrame, text="Please review this tutorial video on using 5v IO boards:").grid(row=2, column=0, sticky="w", padx=5, pady=2)
 
-link2 = Label(infoFrame, font=("Arial", 8), text="https://youtu.be/76F6dS4ar8Y?si=Z6NstZy1zNeHgtCF", foreground="blue", cursor="hand2")
+link2 = ttk_bootstrap.Label(infoFrame, font=("Arial", 8), text="https://youtu.be/76F6dS4ar8Y?si=Z6NstZy1zNeHgtCF", foreground="blue", cursor="hand2")
 link2.bind("<Button-1>", lambda event: webbrowser.open(link2.cget("text")))
 link2.grid(row=3, column=0, sticky="w", padx=5, pady=2)
 
-Label(infoFrame, text="5v board inputs are high impedance and susceptable to floating voltage - inputs use a pullup resistor and will read high when nothing is connected - its best to connect your input signal to GND and if/wait for the input signal to = 0").grid(row=4, column=0, sticky="w", padx=5, pady=2)
+ttk_bootstrap.Label(infoFrame, text="5v board inputs are high impedance and susceptable to floating voltage - inputs use a pullup resistor and will read high when nothing is connected - its best to connect your input signal to GND and if/wait for the input signal to = 0").grid(row=4, column=0, sticky="w", padx=5, pady=2)
 
 
 
@@ -14090,112 +14099,112 @@ Label(infoFrame, text="5v board inputs are high impedance and susceptable to flo
 # ### 4 LABELS#################################################################
 # #############################################################################
 # 
-# servo0onequalsLab = Label(tab4, text = "=")
+# servo0onequalsLab = ttk_bootstrap.Label(tab4, text = "=")
 # servo0onequalsLab.place(x=70, y=42)
 # 
-# servo0offequalsLab = Label(tab4, text = "=")
+# servo0offequalsLab = ttk_bootstrap.Label(tab4, text = "=")
 # servo0offequalsLab.place(x=70, y=82)
 # 
-# servo1onequalsLab = Label(tab4, text = "=")
+# servo1onequalsLab = ttk_bootstrap.Label(tab4, text = "=")
 # servo1onequalsLab.place(x=70, y=122)
 # 
-# servo1offequalsLab = Label(tab4, text = "=")
+# servo1offequalsLab = ttk_bootstrap.Label(tab4, text = "=")
 # servo1offequalsLab.place(x=70, y=162)
 # 
-# servo2onequalsLab = Label(tab4, text = "=")
+# servo2onequalsLab = ttk_bootstrap.Label(tab4, text = "=")
 # servo2onequalsLab.place(x=70, y=202)
 # 
-# servo2offequalsLab = Label(tab4, text = "=")
+# servo2offequalsLab = ttk_bootstrap.Label(tab4, text = "=")
 # servo2offequalsLab.place(x=70, y=242)
 # 
-# servo3onequalsLab = Label(tab4, text = "=")
+# servo3onequalsLab = ttk_bootstrap.Label(tab4, text = "=")
 # servo3onequalsLab.place(x=70, y=282)
 # 
-# servo3offequalsLab = Label(tab4, text = "=")
+# servo3offequalsLab = ttk_bootstrap.Label(tab4, text = "=")
 # servo3offequalsLab.place(x=70, y=322)
 # 
 # 
 # 
-# Do1onequalsLab = Label(tab4, text = "=")
+# Do1onequalsLab = ttk_bootstrap.Label(tab4, text = "=")
 # Do1onequalsLab.place(x=210, y=42)
 # 
-# Do1offequalsLab = Label(tab4, text = "=")
+# Do1offequalsLab = ttk_bootstrap.Label(tab4, text = "=")
 # Do1offequalsLab.place(x=210, y=82)
 # 
-# Do2onequalsLab = Label(tab4, text = "=")
+# Do2onequalsLab = ttk_bootstrap.Label(tab4, text = "=")
 # Do2onequalsLab.place(x=210, y=122)
 # 
-# Do2offequalsLab = Label(tab4, text = "=")
+# Do2offequalsLab = ttk_bootstrap.Label(tab4, text = "=")
 # Do2offequalsLab.place(x=210, y=162)
 # 
-# Do3onequalsLab = Label(tab4, text = "=")
+# Do3onequalsLab = ttk_bootstrap.Label(tab4, text = "=")
 # Do3onequalsLab.place(x=210, y=202)
 # 
-# Do3offequalsLab = Label(tab4, text = "=")
+# Do3offequalsLab = ttk_bootstrap.Label(tab4, text = "=")
 # Do3offequalsLab.place(x=210, y=242)
 # 
-# Do4onequalsLab = Label(tab4, text = "=")
+# Do4onequalsLab = ttk_bootstrap.Label(tab4, text = "=")
 # Do4onequalsLab.place(x=210, y=282)
 # 
-# Do4offequalsLab = Label(tab4, text = "=")
+# Do4offequalsLab = ttk_bootstrap.Label(tab4, text = "=")
 # Do4offequalsLab.place(x=210, y=322)
 # 
-# Do5onequalsLab = Label(tab4, text = "=")
+# Do5onequalsLab = ttk_bootstrap.Label(tab4, text = "=")
 # Do5onequalsLab.place(x=210, y=362)
 # 
-# Do5offequalsLab = Label(tab4, text = "=")
+# Do5offequalsLab = ttk_bootstrap.Label(tab4, text = "=")
 # Do5offequalsLab.place(x=210, y=402)
 # 
-# Do6onequalsLab = Label(tab4, text = "=")
+# Do6onequalsLab = ttk_bootstrap.Label(tab4, text = "=")
 # Do6onequalsLab.place(x=210, y=442)
 # 
-# Do6offequalsLab = Label(tab4, text = "=")
+# Do6offequalsLab = ttk_bootstrap.Label(tab4, text = "=")
 # Do6offequalsLab.place(x=210, y=482)
 # 
-# IOboardLab = Label(tab4, font=("Arial 10 bold"), text = "5v IO BOARD")
+# IOboardLab = ttk_bootstrap.Label(tab4, font=("Arial 10 bold"), text = "5v IO BOARD")
 # IOboardLab.place(x=95, y=10)
 # 
-# AuxComLab = Label(tab4, font=("Arial 10 bold"), text = "AUX COM DEVICE")
+# AuxComLab = ttk_bootstrap.Label(tab4, font=("Arial 10 bold"), text = "AUX COM DEVICE")
 # AuxComLab.place(x=400, y=10)
 # 
-# ModbusLab = Label(tab4, font=("Arial 10 bold"), text = "MODBUS DEVICE")
+# ModbusLab = ttk_bootstrap.Label(tab4, font=("Arial 10 bold"), text = "MODBUS DEVICE")
 # ModbusLab.place(x=700, y=10)
 # 
-# AuxPortNumLab= Label(tab4, text = "Aux Com Port")
+# AuxPortNumLab= ttk_bootstrap.Label(tab4, text = "Aux Com Port")
 # AuxPortNumLab.place(x=440, y=42)
 # 
-# AuxPortCharLab= Label(tab4, text = "Char to Read")
+# AuxPortCharLab= ttk_bootstrap.Label(tab4, text = "Char to Read")
 # AuxPortCharLab.place(x=440, y=82)
 # 
-# MBslaveLab= Label(tab4, text = "Slave ID")
+# MBslaveLab= ttk_bootstrap.Label(tab4, text = "Slave ID")
 # MBslaveLab.place(x=750, y=42)
 # 
-# MBaddressLab= Label(tab4, text = "Modbus Address")
+# MBaddressLab= ttk_bootstrap.Label(tab4, text = "Modbus Address")
 # MBaddressLab.place(x=750, y=82)
 # 
-# MBwriteLab= Label(tab4, text = "Operation Value")
+# MBwriteLab= ttk_bootstrap.Label(tab4, text = "Operation Value")
 # MBwriteLab.place(x=750, y=122)
 # 
-# MBoutputLab= Label(tab4, text = "Output Response:")
+# MBoutputLab= ttk_bootstrap.Label(tab4, text = "Output Response:")
 # MBoutputLab.place(x=662, y=405)
 # 
 # 
 # 
-# inoutavailLab = Label(tab4, text = "The following IO are available when using the default 5v Nano board for IO:   Inputs = 2-7  /  Outputs = 8-13  /  Servos = A0-A7")
+# inoutavailLab = ttk_bootstrap.Label(tab4, text = "The following IO are available when using the default 5v Nano board for IO:   Inputs = 2-7  /  Outputs = 8-13  /  Servos = A0-A7")
 # inoutavailLab.place(x=10, y=640)
 # 
-# inoutavailLab = Label(tab4, text = "The following IO are available when using the default 5v Mega board for IO:   Inputs = 0-27  /  Outputs = 28-53  /  Servos = A0-A7")
+# inoutavailLab = ttk_bootstrap.Label(tab4, text = "The following IO are available when using the default 5v Mega board for IO:   Inputs = 0-27  /  Outputs = 28-53  /  Servos = A0-A7")
 # inoutavailLab.place(x=10, y=655)
 # 
-# inoutavailLab = Label(tab4, text = "Please review this tutorial video on using 5v IO boards:")
+# inoutavailLab = ttk_bootstrap.Label(tab4, text = "Please review this tutorial video on using 5v IO boards:")
 # inoutavailLab.place(x=10, y=670)
 # 
-# inoutavailLab = Label(tab4, text = "5v board inputs are high impedance and susceptable to floating voltage - inputs use a pullup resistor and will read high when nothing is connected - its best to connect your input signal to GND and if/wait for the input signal to = 0")
+# inoutavailLab = ttk_bootstrap.Label(tab4, text = "5v board inputs are high impedance and susceptable to floating voltage - inputs use a pullup resistor and will read high when nothing is connected - its best to connect your input signal to GND and if/wait for the input signal to = 0")
 # inoutavailLab.place(x=10, y=685)
 # 
 # 
 # 
-# link2 = Label(tab4, font=("Arial", 8), text="https://youtu.be/76F6dS4ar8Y?si=Z6NstZy1zNeHgtCF", foreground="blue", cursor="hand2")
+# link2 = ttk_bootstrap.Label(tab4, font=("Arial", 8), text="https://youtu.be/76F6dS4ar8Y?si=Z6NstZy1zNeHgtCF", foreground="blue", cursor="hand2")
 # link2.bind("<Button-1>", lambda event: webbrowser.open(link2.cget("text")))
 # link2.place(x=300, y=671)
 # 
@@ -14404,7 +14413,7 @@ tab5.grid_columnconfigure(1, weight=0, minsize=300)  # Position Registers
 # ============================================================================
 # Registers Container (Column 0)
 # ============================================================================
-registersFrame = LabelFrame(tab5, text="Registers", padding=10)
+registersFrame = ttk_bootstrap.Labelframe(tab5, text="Registers", padding=10)
 registersFrame.grid(row=0, column=0, sticky="nsew", padx=5, pady=5)
 
 registersFrame.grid_columnconfigure(0, weight=0)  # Entry field column
@@ -14413,103 +14422,103 @@ registersFrame.grid_columnconfigure(1, weight=1)  # Label column
 # R1
 R1EntryField = Entry(registersFrame, width=4, justify="center")
 R1EntryField.grid(row=0, column=0, padx=2, pady=2)
-R1Lab = Label(registersFrame, text="R1")
+R1Lab = ttk_bootstrap.Label(registersFrame, text="R1")
 R1Lab.grid(row=0, column=1, sticky="w", padx=5, pady=2)
 
 # R2
 R2EntryField = Entry(registersFrame, width=4, justify="center")
 R2EntryField.grid(row=1, column=0, padx=2, pady=2)
-R2Lab = Label(registersFrame, text="R2")
+R2Lab = ttk_bootstrap.Label(registersFrame, text="R2")
 R2Lab.grid(row=1, column=1, sticky="w", padx=5, pady=2)
 
 # R3
 R3EntryField = Entry(registersFrame, width=4, justify="center")
 R3EntryField.grid(row=2, column=0, padx=2, pady=2)
-R3Lab = Label(registersFrame, text="R3")
+R3Lab = ttk_bootstrap.Label(registersFrame, text="R3")
 R3Lab.grid(row=2, column=1, sticky="w", padx=5, pady=2)
 
 # R4
 R4EntryField = Entry(registersFrame, width=4, justify="center")
 R4EntryField.grid(row=3, column=0, padx=2, pady=2)
-R4Lab = Label(registersFrame, text="R4")
+R4Lab = ttk_bootstrap.Label(registersFrame, text="R4")
 R4Lab.grid(row=3, column=1, sticky="w", padx=5, pady=2)
 
 # R5
 R5EntryField = Entry(registersFrame, width=4, justify="center")
 R5EntryField.grid(row=4, column=0, padx=2, pady=2)
-R5Lab = Label(registersFrame, text="R5")
+R5Lab = ttk_bootstrap.Label(registersFrame, text="R5")
 R5Lab.grid(row=4, column=1, sticky="w", padx=5, pady=2)
 
 # R6
 R6EntryField = Entry(registersFrame, width=4, justify="center")
 R6EntryField.grid(row=5, column=0, padx=2, pady=2)
-R6Lab = Label(registersFrame, text="R6")
+R6Lab = ttk_bootstrap.Label(registersFrame, text="R6")
 R6Lab.grid(row=5, column=1, sticky="w", padx=5, pady=2)
 
 # R7
 R7EntryField = Entry(registersFrame, width=4, justify="center")
 R7EntryField.grid(row=6, column=0, padx=2, pady=2)
-R7Lab = Label(registersFrame, text="R7")
+R7Lab = ttk_bootstrap.Label(registersFrame, text="R7")
 R7Lab.grid(row=6, column=1, sticky="w", padx=5, pady=2)
 
 # R8
 R8EntryField = Entry(registersFrame, width=4, justify="center")
 R8EntryField.grid(row=7, column=0, padx=2, pady=2)
-R8Lab = Label(registersFrame, text="R8")
+R8Lab = ttk_bootstrap.Label(registersFrame, text="R8")
 R8Lab.grid(row=7, column=1, sticky="w", padx=5, pady=2)
 
 # R9
 R9EntryField = Entry(registersFrame, width=4, justify="center")
 R9EntryField.grid(row=8, column=0, padx=2, pady=2)
-R9Lab = Label(registersFrame, text="R9")
+R9Lab = ttk_bootstrap.Label(registersFrame, text="R9")
 R9Lab.grid(row=8, column=1, sticky="w", padx=5, pady=2)
 
 # R10
 R10EntryField = Entry(registersFrame, width=4, justify="center")
 R10EntryField.grid(row=9, column=0, padx=2, pady=2)
-R10Lab = Label(registersFrame, text="R10")
+R10Lab = ttk_bootstrap.Label(registersFrame, text="R10")
 R10Lab.grid(row=9, column=1, sticky="w", padx=5, pady=2)
 
 # R11
 R11EntryField = Entry(registersFrame, width=4, justify="center")
 R11EntryField.grid(row=10, column=0, padx=2, pady=2)
-R11Lab = Label(registersFrame, text="R11")
+R11Lab = ttk_bootstrap.Label(registersFrame, text="R11")
 R11Lab.grid(row=10, column=1, sticky="w", padx=5, pady=2)
 
 # R12
 R12EntryField = Entry(registersFrame, width=4, justify="center")
 R12EntryField.grid(row=11, column=0, padx=2, pady=2)
-R12Lab = Label(registersFrame, text="R12")
+R12Lab = ttk_bootstrap.Label(registersFrame, text="R12")
 R12Lab.grid(row=11, column=1, sticky="w", padx=5, pady=2)
 
 # R13
 R13EntryField = Entry(registersFrame, width=4, justify="center")
 R13EntryField.grid(row=12, column=0, padx=2, pady=2)
-R13Lab = Label(registersFrame, text="R13")
+R13Lab = ttk_bootstrap.Label(registersFrame, text="R13")
 R13Lab.grid(row=12, column=1, sticky="w", padx=5, pady=2)
 
 # R14
 R14EntryField = Entry(registersFrame, width=4, justify="center")
 R14EntryField.grid(row=13, column=0, padx=2, pady=2)
-R14Lab = Label(registersFrame, text="R14")
+R14Lab = ttk_bootstrap.Label(registersFrame, text="R14")
 R14Lab.grid(row=13, column=1, sticky="w", padx=5, pady=2)
 
 # R15
 R15EntryField = Entry(registersFrame, width=4, justify="center")
 R15EntryField.grid(row=14, column=0, padx=2, pady=2)
-R15Lab = Label(registersFrame, text="R15")
+R15Lab = ttk_bootstrap.Label(registersFrame, text="R15")
 R15Lab.grid(row=14, column=1, sticky="w", padx=5, pady=2)
 
 # R16
 R16EntryField = Entry(registersFrame, width=4, justify="center")
 R16EntryField.grid(row=15, column=0, padx=2, pady=2)
-R16Lab = Label(registersFrame, text="R16")
+R16Lab = ttk_bootstrap.Label(registersFrame, text="R16")
 R16Lab.grid(row=15, column=1, sticky="w", padx=5, pady=2)
 
 # ============================================================================
 # Position Registers Container (Column 1)
 # ============================================================================
-posRegistersFrame = LabelFrame(tab5, text="Position Registers", padding=10)
+posRegistersFrame = ttk_bootstrap.Labelframe(tab5, text="Position Registers", padding=10)
 posRegistersFrame.grid(row=0, column=1, sticky="nsew", padx=5, pady=5)
 
 posRegistersFrame.grid_columnconfigure(0, weight=0, minsize=35)  # X
@@ -14521,12 +14530,12 @@ posRegistersFrame.grid_columnconfigure(5, weight=0, minsize=35)  # Rx
 posRegistersFrame.grid_columnconfigure(6, weight=0, minsize=40)  # PR label
 
 # Header row
-Label(posRegistersFrame, text="X").grid(row=0, column=0, padx=1, pady=2)
-Label(posRegistersFrame, text="Y").grid(row=0, column=1, padx=1, pady=2)
-Label(posRegistersFrame, text="Z").grid(row=0, column=2, padx=1, pady=2)
-Label(posRegistersFrame, text="Rz").grid(row=0, column=3, padx=1, pady=2)
-Label(posRegistersFrame, text="Ry").grid(row=0, column=4, padx=1, pady=2)
-Label(posRegistersFrame, text="Rx").grid(row=0, column=5, padx=1, pady=2)
+ttk_bootstrap.Label(posRegistersFrame, text="X").grid(row=0, column=0, padx=1, pady=2)
+ttk_bootstrap.Label(posRegistersFrame, text="Y").grid(row=0, column=1, padx=1, pady=2)
+ttk_bootstrap.Label(posRegistersFrame, text="Z").grid(row=0, column=2, padx=1, pady=2)
+ttk_bootstrap.Label(posRegistersFrame, text="Rz").grid(row=0, column=3, padx=1, pady=2)
+ttk_bootstrap.Label(posRegistersFrame, text="Ry").grid(row=0, column=4, padx=1, pady=2)
+ttk_bootstrap.Label(posRegistersFrame, text="Rx").grid(row=0, column=5, padx=1, pady=2)
 
 # PR1
 SP_1_E1_EntryField = Entry(posRegistersFrame, width=4, justify="center")
@@ -14541,7 +14550,7 @@ SP_1_E5_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_1_E5_EntryField.grid(row=1, column=4, padx=1, pady=2)
 SP_1_E6_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_1_E6_EntryField.grid(row=1, column=5, padx=1, pady=2)
-SP1Lab = Label(posRegistersFrame, text="PR1")
+SP1Lab = ttk_bootstrap.Label(posRegistersFrame, text="PR1")
 SP1Lab.grid(row=1, column=6, sticky="w", padx=2, pady=2)
 
 # PR2
@@ -14557,7 +14566,7 @@ SP_2_E5_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_2_E5_EntryField.grid(row=2, column=4, padx=1, pady=2)
 SP_2_E6_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_2_E6_EntryField.grid(row=2, column=5, padx=1, pady=2)
-SP2Lab = Label(posRegistersFrame, text="PR2")
+SP2Lab = ttk_bootstrap.Label(posRegistersFrame, text="PR2")
 SP2Lab.grid(row=2, column=6, sticky="w", padx=2, pady=2)
 
 # PR3
@@ -14573,7 +14582,7 @@ SP_3_E5_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_3_E5_EntryField.grid(row=3, column=4, padx=1, pady=2)
 SP_3_E6_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_3_E6_EntryField.grid(row=3, column=5, padx=1, pady=2)
-SP3Lab = Label(posRegistersFrame, text="PR3")
+SP3Lab = ttk_bootstrap.Label(posRegistersFrame, text="PR3")
 SP3Lab.grid(row=3, column=6, sticky="w", padx=2, pady=2)
 
 # PR4
@@ -14589,7 +14598,7 @@ SP_4_E5_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_4_E5_EntryField.grid(row=4, column=4, padx=1, pady=2)
 SP_4_E6_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_4_E6_EntryField.grid(row=4, column=5, padx=1, pady=2)
-SP4Lab = Label(posRegistersFrame, text="PR4")
+SP4Lab = ttk_bootstrap.Label(posRegistersFrame, text="PR4")
 SP4Lab.grid(row=4, column=6, sticky="w", padx=2, pady=2)
 
 # PR5
@@ -14605,7 +14614,7 @@ SP_5_E5_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_5_E5_EntryField.grid(row=5, column=4, padx=1, pady=2)
 SP_5_E6_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_5_E6_EntryField.grid(row=5, column=5, padx=1, pady=2)
-SP5Lab = Label(posRegistersFrame, text="PR5")
+SP5Lab = ttk_bootstrap.Label(posRegistersFrame, text="PR5")
 SP5Lab.grid(row=5, column=6, sticky="w", padx=2, pady=2)
 
 # PR6
@@ -14621,7 +14630,7 @@ SP_6_E5_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_6_E5_EntryField.grid(row=6, column=4, padx=1, pady=2)
 SP_6_E6_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_6_E6_EntryField.grid(row=6, column=5, padx=1, pady=2)
-SP6Lab = Label(posRegistersFrame, text="PR6")
+SP6Lab = ttk_bootstrap.Label(posRegistersFrame, text="PR6")
 SP6Lab.grid(row=6, column=6, sticky="w", padx=2, pady=2)
 
 # PR7
@@ -14637,7 +14646,7 @@ SP_7_E5_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_7_E5_EntryField.grid(row=7, column=4, padx=1, pady=2)
 SP_7_E6_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_7_E6_EntryField.grid(row=7, column=5, padx=1, pady=2)
-SP7Lab = Label(posRegistersFrame, text="PR7")
+SP7Lab = ttk_bootstrap.Label(posRegistersFrame, text="PR7")
 SP7Lab.grid(row=7, column=6, sticky="w", padx=2, pady=2)
 
 # PR8
@@ -14653,7 +14662,7 @@ SP_8_E5_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_8_E5_EntryField.grid(row=8, column=4, padx=1, pady=2)
 SP_8_E6_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_8_E6_EntryField.grid(row=8, column=5, padx=1, pady=2)
-SP8Lab = Label(posRegistersFrame, text="PR8")
+SP8Lab = ttk_bootstrap.Label(posRegistersFrame, text="PR8")
 SP8Lab.grid(row=8, column=6, sticky="w", padx=2, pady=2)
 
 # PR9
@@ -14669,7 +14678,7 @@ SP_9_E5_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_9_E5_EntryField.grid(row=9, column=4, padx=1, pady=2)
 SP_9_E6_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_9_E6_EntryField.grid(row=9, column=5, padx=1, pady=2)
-SP9Lab = Label(posRegistersFrame, text="PR9")
+SP9Lab = ttk_bootstrap.Label(posRegistersFrame, text="PR9")
 SP9Lab.grid(row=9, column=6, sticky="w", padx=2, pady=2)
 
 # PR10
@@ -14685,7 +14694,7 @@ SP_10_E5_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_10_E5_EntryField.grid(row=10, column=4, padx=1, pady=2)
 SP_10_E6_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_10_E6_EntryField.grid(row=10, column=5, padx=1, pady=2)
-SP10Lab = Label(posRegistersFrame, text="PR10")
+SP10Lab = ttk_bootstrap.Label(posRegistersFrame, text="PR10")
 SP10Lab.grid(row=10, column=6, sticky="w", padx=2, pady=2)
 
 # PR11
@@ -14701,7 +14710,7 @@ SP_11_E5_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_11_E5_EntryField.grid(row=11, column=4, padx=1, pady=2)
 SP_11_E6_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_11_E6_EntryField.grid(row=11, column=5, padx=1, pady=2)
-SP11Lab = Label(posRegistersFrame, text="PR11")
+SP11Lab = ttk_bootstrap.Label(posRegistersFrame, text="PR11")
 SP11Lab.grid(row=11, column=6, sticky="w", padx=2, pady=2)
 
 # PR12
@@ -14717,7 +14726,7 @@ SP_12_E5_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_12_E5_EntryField.grid(row=12, column=4, padx=1, pady=2)
 SP_12_E6_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_12_E6_EntryField.grid(row=12, column=5, padx=1, pady=2)
-SP12Lab = Label(posRegistersFrame, text="PR12")
+SP12Lab = ttk_bootstrap.Label(posRegistersFrame, text="PR12")
 SP12Lab.grid(row=12, column=6, sticky="w", padx=2, pady=2)
 
 # PR13
@@ -14733,7 +14742,7 @@ SP_13_E5_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_13_E5_EntryField.grid(row=13, column=4, padx=1, pady=2)
 SP_13_E6_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_13_E6_EntryField.grid(row=13, column=5, padx=1, pady=2)
-SP13Lab = Label(posRegistersFrame, text="PR13")
+SP13Lab = ttk_bootstrap.Label(posRegistersFrame, text="PR13")
 SP13Lab.grid(row=13, column=6, sticky="w", padx=2, pady=2)
 
 # PR14
@@ -14749,7 +14758,7 @@ SP_14_E5_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_14_E5_EntryField.grid(row=14, column=4, padx=1, pady=2)
 SP_14_E6_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_14_E6_EntryField.grid(row=14, column=5, padx=1, pady=2)
-SP14Lab = Label(posRegistersFrame, text="PR14")
+SP14Lab = ttk_bootstrap.Label(posRegistersFrame, text="PR14")
 SP14Lab.grid(row=14, column=6, sticky="w", padx=2, pady=2)
 
 # PR15
@@ -14765,7 +14774,7 @@ SP_15_E5_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_15_E5_EntryField.grid(row=15, column=4, padx=1, pady=2)
 SP_15_E6_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_15_E6_EntryField.grid(row=15, column=5, padx=1, pady=2)
-SP15Lab = Label(posRegistersFrame, text="PR15")
+SP15Lab = ttk_bootstrap.Label(posRegistersFrame, text="PR15")
 SP15Lab.grid(row=15, column=6, sticky="w", padx=2, pady=2)
 
 # PR16
@@ -14781,7 +14790,7 @@ SP_16_E5_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_16_E5_EntryField.grid(row=16, column=4, padx=1, pady=2)
 SP_16_E6_EntryField = Entry(posRegistersFrame, width=4, justify="center")
 SP_16_E6_EntryField.grid(row=16, column=5, padx=1, pady=2)
-SP16Lab = Label(posRegistersFrame, text="PR16")
+SP16Lab = ttk_bootstrap.Label(posRegistersFrame, text="PR16")
 SP16Lab.grid(row=16, column=6, sticky="w", padx=2, pady=2)
 
 
@@ -14798,41 +14807,41 @@ SP16Lab.grid(row=16, column=6, sticky="w", padx=2, pady=2)
 
 VisBackdropImg = Image.open("VisBackdrop.png")
 VisBackdropTk = ImageTk.PhotoImage(VisBackdropImg)
-VisBackdromLbl = Label(tab6, image = VisBackdropTk)
+VisBackdromLbl = ttk_bootstrap.Label(tab6, image = VisBackdropTk)
 VisBackdromLbl.place(x=15, y=215)
 
 
 #RUN['cam_on']= cv2.VideoCapture(0)
-video_frame = Frame(tab6,width=640,height=480)
+video_frame = ttk_bootstrap.Frame(tab6,width=640,height=480)
 video_frame.place(x=50, y=250)
 
 
-vid_lbl = Label(video_frame)
+vid_lbl = ttk_bootstrap.Label(video_frame)
 vid_lbl.place(x=0, y=0)
 
 vid_lbl.bind('<Button-1>', motion)
 
 
-LiveLab = Label(tab6, text = "LIVE VIDEO FEED")
+LiveLab = ttk_bootstrap.Label(tab6, text = "LIVE VIDEO FEED")
 LiveLab.place(x=750, y=390)
 liveCanvas = Canvas(tab6, width=490, height=330)
 liveCanvas.place(x=750, y=410)
-live_frame = Frame(tab6,width=480,height=320)
+live_frame = ttk_bootstrap.Frame(tab6,width=480,height=320)
 live_frame.place(x=757, y=417)
-live_lbl = Label(live_frame)
+live_lbl = ttk_bootstrap.Label(live_frame)
 live_lbl.place(x=0, y=0)
 
 
-template_frame = Frame(tab6,width=120,height=150)
+template_frame = ttk_bootstrap.Frame(tab6,width=120,height=150)
 template_frame.place(x=575, y=50)
 
-template_lbl = Label(template_frame)
+template_lbl = ttk_bootstrap.Label(template_frame)
 template_lbl.place(x=0, y=0)
 
-FoundValuesLab = Label(tab6, text = "FOUND VALUES")
+FoundValuesLab = ttk_bootstrap.Label(tab6, text = "FOUND VALUES")
 FoundValuesLab.place(x=750, y=30)
 
-CalValuesLab = Label(tab6, text = "CALIBRATION VALUES")
+CalValuesLab = ttk_bootstrap.Label(tab6, text = "CALIBRATION VALUES")
 CalValuesLab.place(x=900, y=30)
 
 
@@ -14937,21 +14946,21 @@ VisZoomSlide.bind("<ButtonRelease-1>", VisUpdateBriCon)
 VisZoomSlide.place(x=75, y=95)
 VisZoomSlide.set(50)
 
-VisZoomLab = Label(tab6, text = "Zoom")
+VisZoomLab = ttk_bootstrap.Label(tab6, text = "Zoom")
 VisZoomLab.place(x=75, y=115)
 
 VisBrightSlide = Scale(tab6, from_=-127, to=127,  length=250, orient=HORIZONTAL)
 VisBrightSlide.bind("<ButtonRelease-1>", VisUpdateBriCon)
 VisBrightSlide.place(x=75, y=130)
 
-VisBrightLab = Label(tab6, text = "Brightness")
+VisBrightLab = ttk_bootstrap.Label(tab6, text = "Brightness")
 VisBrightLab.place(x=75, y=150)
 
 VisContrastSlide = Scale(tab6, from_=-127, to=127,  length=250, orient=HORIZONTAL)
 VisContrastSlide.bind("<ButtonRelease-1>", VisUpdateBriCon)
 VisContrastSlide.place(x=75, y=165)
 
-VisContrastLab = Label(tab6, text = "Contrast")
+VisContrastLab = ttk_bootstrap.Label(tab6, text = "Contrast")
 VisContrastLab.place(x=75, y=185)
 
 
@@ -14982,7 +14991,7 @@ saveCalBut.place(x=915, y=340)
 
 VisBacColorEntryField = Entry(tab6,width=12,justify="center")
 VisBacColorEntryField.place(x=390, y=100)
-VisBacColorLab = Label(tab6, text = "Background Color")
+VisBacColorLab = ttk_bootstrap.Label(tab6, text = "Background Color")
 VisBacColorLab.place(x=390, y=120)
 
 bgAutoCbut = Checkbutton(tab6, command=checkAutoBG, text="Auto",variable = RUN['autoBG'])
@@ -14990,7 +14999,7 @@ bgAutoCbut.place(x=490, y=101)
 
 VisScoreEntryField = Entry(tab6,width=12,justify="center")
 VisScoreEntryField.place(x=390, y=150)
-VisScoreLab = Label(tab6, text = "Score Threshold")
+VisScoreLab = ttk_bootstrap.Label(tab6, text = "Score Threshold")
 VisScoreLab.place(x=390, y=170)
 
 
@@ -14998,32 +15007,32 @@ VisScoreLab.place(x=390, y=170)
 
 VisRetScoreEntryField = Entry(tab6,width=12,justify="center")
 VisRetScoreEntryField.place(x=750, y=55)
-VisRetScoreLab = Label(tab6, text = "Scored Value")
+VisRetScoreLab = ttk_bootstrap.Label(tab6, text = "Scored Value")
 VisRetScoreLab.place(x=750, y=75)
 
 VisRetAngleEntryField = Entry(tab6,width=12,justify="center")
 VisRetAngleEntryField.place(x=750, y=105)
-VisRetAngleLab = Label(tab6, text = "Found Angle")
+VisRetAngleLab = ttk_bootstrap.Label(tab6, text = "Found Angle")
 VisRetAngleLab.place(x=750, y=125)
 
 VisRetXpixEntryField = Entry(tab6,width=12,justify="center")
 VisRetXpixEntryField.place(x=750, y=155)
-VisRetXpixLab = Label(tab6, text = "Pixel X Position")
+VisRetXpixLab = ttk_bootstrap.Label(tab6, text = "Pixel X Position")
 VisRetXpixLab.place(x=750, y=175)
 
 VisRetYpixEntryField = Entry(tab6,width=12,justify="center")
 VisRetYpixEntryField.place(x=750, y=205)
-VisRetYpixLab = Label(tab6, text = "Pixel Y Position")
+VisRetYpixLab = ttk_bootstrap.Label(tab6, text = "Pixel Y Position")
 VisRetYpixLab.place(x=750, y=225)
 
 VisRetXrobEntryField = Entry(tab6,width=12,justify="center")
 VisRetXrobEntryField.place(x=750, y=255)
-VisRetXrobLab = Label(tab6, text = "Robot X Position")
+VisRetXrobLab = ttk_bootstrap.Label(tab6, text = "Robot X Position")
 VisRetXrobLab.place(x=750, y=275)
 
 VisRetYrobEntryField = Entry(tab6,width=12,justify="center")
 VisRetYrobEntryField.place(x=750, y=305)
-VisRetYrobLab = Label(tab6, text = "Robot Y Position")
+VisRetYrobLab = ttk_bootstrap.Label(tab6, text = "Robot Y Position")
 VisRetYrobLab.place(x=750, y=325)
 
 
@@ -15034,43 +15043,43 @@ VisRetYrobLab.place(x=750, y=325)
 
 VisX1PixEntryField = Entry(tab6,width=12,justify="center")
 VisX1PixEntryField.place(x=900, y=55)
-VisX1PixLab = Label(tab6, text = "X1 Pixel Pos")
+VisX1PixLab = ttk_bootstrap.Label(tab6, text = "X1 Pixel Pos")
 VisX1PixLab.place(x=900, y=75)
 
 VisY1PixEntryField = Entry(tab6,width=12,justify="center")
 VisY1PixEntryField.place(x=900, y=105)
-VisY1PixLab = Label(tab6, text = "Y1 Pixel Pos")
+VisY1PixLab = ttk_bootstrap.Label(tab6, text = "Y1 Pixel Pos")
 VisY1PixLab.place(x=900, y=125)
 
 VisX2PixEntryField = Entry(tab6,width=12,justify="center")
 VisX2PixEntryField.place(x=900, y=155)
-VisX2PixLab = Label(tab6, text = "X2 Pixel Pos")
+VisX2PixLab = ttk_bootstrap.Label(tab6, text = "X2 Pixel Pos")
 VisX2PixLab.place(x=900, y=175)
 
 VisY2PixEntryField = Entry(tab6,width=12,justify="center")
 VisY2PixEntryField.place(x=900, y=205)
-VisY2PixLab = Label(tab6, text = "Y2 Pixel Pos")
+VisY2PixLab = ttk_bootstrap.Label(tab6, text = "Y2 Pixel Pos")
 VisY2PixLab.place(x=900, y=225)
 
 
 VisX1RobEntryField = Entry(tab6,width=12,justify="center")
 VisX1RobEntryField.place(x=1010, y=55)
-VisX1RobLab = Label(tab6, text = "X1 Robot Pos")
+VisX1RobLab = ttk_bootstrap.Label(tab6, text = "X1 Robot Pos")
 VisX1RobLab.place(x=1010, y=75)
 
 VisY1RobEntryField = Entry(tab6,width=12,justify="center")
 VisY1RobEntryField.place(x=1010, y=105)
-VisY1RobLab = Label(tab6, text = "Y1 Robot Pos")
+VisY1RobLab = ttk_bootstrap.Label(tab6, text = "Y1 Robot Pos")
 VisY1RobLab.place(x=1010, y=125)
 
 VisX2RobEntryField = Entry(tab6,width=12,justify="center")
 VisX2RobEntryField.place(x=1010, y=155)
-VisX2RobLab = Label(tab6, text = "X2 Robot Pos")
+VisX2RobLab = ttk_bootstrap.Label(tab6, text = "X2 Robot Pos")
 VisX2RobLab.place(x=1010, y=175)
 
 VisY2RobEntryField = Entry(tab6,width=12,justify="center")
 VisY2RobEntryField.place(x=1010, y=205)
-VisY2RobLab = Label(tab6, text = "Y2 Robot Pos")
+VisY2RobLab = ttk_bootstrap.Label(tab6, text = "Y2 Robot Pos")
 VisY2RobLab.place(x=1010, y=225)
 
 
@@ -15132,7 +15141,7 @@ GcodeFilenameField = Entry(tab7,width=40,justify="center")
 GcodeFilenameField.place(x=20, y=340)
 
 
-GCalmStatusLab = Label(tab7, text = "GCODE IDLE", style="OK.TLabel")
+GCalmStatusLab = ttk_bootstrap.Label(tab7, text = "GCODE IDLE", style="OK.TLabel")
 GCalmStatusLab.place(x=400, y=20)
 
 
@@ -15212,13 +15221,13 @@ saveGCBut.place(x=20, y=600)
 
 
 
-gcodeCurRowLab = Label(tab7, text = "Current Row: ")
+gcodeCurRowLab = ttk_bootstrap.Label(tab7, text = "Current Row: ")
 gcodeCurRowLab.place(x=1100, y=21)
 
-gcodeStartPosOFfLab = Label(tab7, text = "Start Position Offset")
+gcodeStartPosOFfLab = ttk_bootstrap.Label(tab7, text = "Start Position Offset")
 gcodeStartPosOFfLab.place(x=20, y=180)
 
-gcodeFilenameLab = Label(tab7, text = "Filename:")
+gcodeFilenameLab = ttk_bootstrap.Label(tab7, text = "Filename:")
 gcodeFilenameLab.place(x=20, y=320)
 
 
@@ -15264,7 +15273,7 @@ clearLogBut.place(x=40, y=690)
 ####################################################################################################################################################
 ####TAB 9
 
-link = Label(tab9, font='12', text="https://www.anninrobotics.com/tutorials",  cursor="hand2")
+link = ttk_bootstrap.Label(tab9, font='12', text="https://www.anninrobotics.com/tutorials",  cursor="hand2")
 link.bind("<Button-1>", lambda event: webbrowser.open(link.cget("text")))
 link.place(x=10, y=9)
 
