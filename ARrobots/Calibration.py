@@ -39,31 +39,74 @@ def save_calibration(calibration_data: dict, calibration_file: str="ARconfig.jso
     except Exception as e:
         logger.error(f"Error saving calibration: {e}")
         return False
+
+def is_valid_float(value):
+    try:
+        float(str(value).strip())
+        return True
+    except Exception:
+        return False
+
+
+def validate_required_startup_values(data):
+    required_float_keys = [
+        "J1AngCur", "J2AngCur", "J3AngCur",
+        "J4AngCur", "J5AngCur", "J6AngCur",
+        "XcurPos", "YcurPos", "ZcurPos",
+        "RxcurPos", "RycurPos", "RzcurPos"
+    ]
+
+    bad_keys = [
+        key for key in required_float_keys
+        if key not in data or not is_valid_float(data[key])
+    ]
+
+    return bad_keys        
     
 def load_calibration(calibration_file: str='ARconfig.json', defaults_file='defaults.json') -> dict | None:
-    ''' Load calibration data from JSON or convert from old pickle format '''
     try:
+        loaded_defaults = False
+        bad_keys = []
+
         if os.path.exists(calibration_file):
             logger.debug("JSON config file found, loading")
             with open(calibration_file, 'r') as f:
                 calibration_data = json.load(f)
+
+            bad_keys = validate_required_startup_values(calibration_data)
+
+            if bad_keys:
+                logger.error(
+                    f"ARconfig.json has invalid required startup values: {bad_keys}. "
+                    "Loading defaults.json instead. Robot must be recalibrated."
+                )
+
+                with open(defaults_file, 'r') as f:
+                    calibration_data = json.load(f)
+
+                loaded_defaults = True
+
         elif os.path.exists('ARbot.cal'):
             logger.debug("No JSON config file found, attempting to load ARbot.cal")
             calibration_data = convert_calibration()
+
         else:
             logger.info("No configuration file found - Loading default settings")
-            if os.path.exists(defaults_file):
-                logger.debug("default JSON config file found, loading")
-                with open(defaults_file, 'r') as f:
-                    calibration_data = json.load(f)
-                save_calibration(calibration_data)
-        if calibration_data != None:
+            with open(defaults_file, 'r') as f:
+                calibration_data = json.load(f)
+            save_calibration(calibration_data)
+            loaded_defaults = True
+
+        if calibration_data is not None:
+            calibration_data["_loaded_defaults_due_to_config_error"] = loaded_defaults
+            calibration_data["_bad_config_keys"] = bad_keys
             return calibration_data
-        else:
-            logger.error("Error loading calibration data")
-            return None
+
+        logger.error("Error loading calibration data")
+        return None
+
     except Exception as e:
-        logger.error(f"Unrecoverable error reading config file.  Maae sure it isn't corrupted.\n{e}")
+        logger.error(f"Unrecoverable error reading config file. Make sure it isn't corrupted.\n{e}")
         exit()
     
 def convert_calibration()-> dict | None:

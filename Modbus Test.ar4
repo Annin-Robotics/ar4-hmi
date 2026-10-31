@@ -1,0 +1,19 @@
+## RUN ONCE ##
+
+
+If MBcoil - SlaveID (7) - Coil # 3072 = 1 : Stop
+If MBinput - SlaveID (7) - Input # 2048 = 1 : Stop
+If MBhold reg - SlaveID (7) Num Reg's (1) - Reg # 1088 = 333 : Stop
+
+Set MBcoil - SlaveID (7) - Coil # 3072 = 0
+Set MBcoil - SlaveID (7) - Coil # 3072 = 1
+Set MBoutput - SlaveID (7) - Input # 1088 = 333
+Set MBoutput - SlaveID (7) - Input # 1088 = 444
+
+
+Wait MBcoil - SlaveID (7) - Coil # 3072 = 1 : Timeout = 20
+Wait MBhold - SlaveID (7) - Input # 1088 = 444 : Timeout = 20
+
+
+
+

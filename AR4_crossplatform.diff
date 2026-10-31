@@ -1,0 +1,786 @@
+--- AR4.py.20261017-192428.bak	2026-10-17 19:24:23.141814988 -0400
++++ AR4.py	2026-10-17 19:24:28.834506468 -0400
+@@ -82,7 +82,19 @@
+ 
+ import sys
+ import os
++import pathlib
+ from datetime import datetime
++
++# CROSS-PLATFORM PATCH v1
++# Resolve the app folder and chdir before anything opens a relative path (STLs, icons,
++# config, CAD folders), so the program works no matter where it is launched from.
++if getattr(sys, "frozen", False):
++    DIR = pathlib.Path(sys.executable).resolve().parent
++else:
++    DIR = pathlib.Path(__file__).resolve().parent
++os.chdir(DIR)
++IS_WINDOWS = sys.platform.startswith("win")
++
+ from ARrobots.ARrobot import ARRobot, ARNano
+ 
+ ################################################################################################
+@@ -173,7 +185,10 @@
+ from PIL import Image, ImageTk
+ 
+ import vtk
+-from vtkmodules.tk.vtkTkRenderWindowInteractor import vtkTkRenderWindowInteractor
++try:
++  from vtkmodules.tk.vtkTkRenderWindowInteractor import vtkTkRenderWindowInteractor  # unused, optional
++except Exception:
++  vtkTkRenderWindowInteractor = None
+ import vtkmodules.vtkInteractionStyle as vtkIS
+ 
+ import webbrowser
+@@ -224,8 +239,96 @@
+ CAL = Config.Calibration
+ RUN = Config.RuntimeState # Not implemented yet
+ 
++FilterGraph = None
+ if CE['Platform']['IS_WINDOWS']:
+-  from pygrabber.dshow_graph import FilterGraph
++  try:
++    from pygrabber.dshow_graph import FilterGraph
++  except ImportError:
++    logger.warning("pygrabber not installed - camera names unavailable (pip install pygrabber)")
++
++
++#############################################################################################
++### CROSS-PLATFORM HELPERS ##################################################################
++#############################################################################################
++
++CAMERA_LABEL_TO_ID = {}   # camera menu label -> OpenCV source (index on Windows, index or /dev path on Linux)
++
++
++def resolve_serial_port(value):
++  """Turn a port entry into a real device name for this OS.
++  '3' -> COM3 on Windows, /dev/ttyUSB3 on Linux; 'ttyACM0' -> /dev/ttyACM0 on Linux;
++  full names (COM5, /dev/ttyACM0, /dev/serial/by-id/...) are used as-is."""
++  v = str(value).strip()
++  if not v:
++    return v
++  if IS_WINDOWS:
++    return ("COM" + v) if v.isdigit() else v
++  if v.isdigit():
++    return "/dev/ttyUSB" + v
++  if not v.startswith("/") and v.startswith("tty"):
++    return "/dev/" + v
++  return v
++
++
++def open_camera(source):
++  """Open a camera with the best backend for this OS (DirectShow on Windows, V4L2 on
++  Linux), falling back to OpenCV's default backend."""
++  if IS_WINDOWS and isinstance(source, int) and hasattr(cv2, "CAP_DSHOW"):
++    cap = cv2.VideoCapture(source, cv2.CAP_DSHOW)
++    if cap.isOpened():
++      return cap
++    cap.release()
++  elif not IS_WINDOWS and hasattr(cv2, "CAP_V4L2"):
++    cap = cv2.VideoCapture(source, cv2.CAP_V4L2)
++    if cap.isOpened():
++      return cap
++    cap.release()
++  return cv2.VideoCapture(source)
++
++
++def selected_camera_source():
++  """OpenCV source for the camera currently picked in the Vision tab menu."""
++  label = visoptions.get()
++  src = CAMERA_LABEL_TO_ID.get(label)
++  if src is None:
++    try:
++      src = camList.index(label)
++    except (ValueError, NameError):
++      src = 0
++  if isinstance(src, str) and src.isdigit():
++    src = int(src)
++  return src
++
++
++def _norm_prog_row(x):
++  if isinstance(x, bytes):
++    x = x.decode("utf-8", "replace")
++  return str(x).replace("\r", "").replace("\n", "").strip()
++
++
++def find_prog_row(text):
++  """Index of a program row, ignoring CRLF vs LF and bytes vs str.
++  Program files saved on Linux end lines with \\n only, so exact matches against
++  '...\\r\\n' failed there (and on any OS right after inserting a new row)."""
++  target = _norm_prog_row(text)
++  for i, item in enumerate(tab1.progView.get(0, "end")):
++    if _norm_prog_row(item) == target:
++      return i
++  raise ValueError(f"Program row not found: {target!r}")
++
++
++def resolve_imported_name(name):
++  """Find an imported CAD by name regardless of extension case (part / part.stl / part.STL).
++  Linux filenames are case-sensitive, so blindly appending '.STL' missed 'part.stl'."""
++  if name in imported_actors:
++    return name
++  low = name.lower()
++  base = os.path.splitext(low)[0] if low.endswith((".stl", ".step", ".stp")) else low
++  for key in imported_actors:
++    k = key.lower()
++    if k == low or os.path.splitext(k)[0] == base:
++      return key
++  return name if low.endswith(".stl") else name + '.STL'
+ 
+ 
+ kinematics.robot_set()
+@@ -3672,6 +3775,14 @@
+         pass
+     
+ def update_vtk(render_window, root_widget):
++    if RUN['vtk_running'] and not IS_WINDOWS and RUN.get('interactor') is not None:
++        # On X11 Tk's event loop doesn't service VTK's own display connection, so the
++        # viewer would never see mouse/keyboard/close events. Pump them here.
++        # (On Windows they arrive through the shared message loop already.)
++        try:
++            RUN['interactor'].ProcessEvents()
++        except Exception as e:
++            logger.debug(f"VTK ProcessEvents failed: {e}")
+     if RUN['vtk_running']:
+         process_vr_events()
+         update_teach_visibility()
+@@ -3769,6 +3880,8 @@
+ 
+ def set_vtk_topmost_delayed(render_window, root_widget):
+     '''Continuously keep VTK window on top using window title'''
++    if not IS_WINDOWS:
++        return  # uses win32gui; on Linux the window manager handles stacking
+     def keep_on_top():
+         import time
+         import platform
+@@ -4417,9 +4530,8 @@
+     if threading.current_thread() is not threading.main_thread():
+         root.after(0, lambda name=actorname: attachtogripper(name))
+         return
+-    # Allow callers to omit the .stl extension
+-    if not actorname.lower().endswith(".stl"):
+-        actorname += ".STL"
++    # Allow callers to omit the extension; matches .stl/.STL either way (Linux is case-sensitive)
++    actorname = resolve_imported_name(actorname)
+ 
+     if actorname not in imported_actors:
+         logger.error(f"attachtogripper: '{actorname}' not found in imported_actors")
+@@ -4454,9 +4566,8 @@
+     if threading.current_thread() is not threading.main_thread():
+         root.after(0, lambda name=actorname: detachfromgripper(name))
+         return
+-    # Allow callers to omit the .STL extension
+-    if not actorname.lower().endswith(".stl"):
+-        actorname += ".STL"
++    # Allow callers to omit the extension; matches .stl/.STL either way (Linux is case-sensitive)
++    actorname = resolve_imported_name(actorname)
+ 
+     if actorname not in imported_actors:
+         logger.error(
+@@ -5117,7 +5228,7 @@
+           selRow = 1
+           progLoop = ("## START PROGRAM LOOP ##\r\n").encode('utf-8')
+           try:
+-            index = tab1.progView.get(0, "end").index(progLoop)
++            index = find_prog_row(progLoop)
+             tab1.progView.selection_clear(0, END)
+             tab1.progView.select_set(index)
+           except:
+@@ -5195,7 +5306,7 @@
+           selRow = 1
+           progLoop = ("## START PROGRAM LOOP ##\r\n").encode('utf-8')
+           try:
+-            index = tab1.progView.get(0, "end").index(progLoop)
++            index = find_prog_row(progLoop)
+             tab1.progView.selection_clear(0, END)
+             tab1.progView.select_set(index)
+           except:
+@@ -5497,7 +5608,7 @@
+         tabIndex = command.find("Tab")
+         tabNum = str(command[tabIndex+4:])
+         tabNum = ("Tab Number " + tabNum + "\r\n").encode('utf-8')
+-        index = tab1.progView.get(0, "end").index(tabNum)
++        index = find_prog_row(tabNum)
+         index = index-1
+         tab1.progView.selection_clear(0, END)
+         tab1.progView.select_set(index)
+@@ -5517,7 +5628,7 @@
+     charNum = int(command[charIndex+6:])
+     try:
+       # global RUN['ser3']    
+-      port = "COM" + comNum   
++      port = resolve_serial_port(comNum)
+       baud = 9600    
+       RUN['ser3'] = serial.Serial(port,baud,timeout=10)
+     except:
+@@ -5563,7 +5674,7 @@
+         tabIndex = command.find("Tab")
+         tabNum = str(command[tabIndex+4:])
+         tabNum = ("Tab Number " + tabNum + "\r\n").encode('utf-8')
+-        index = tab1.progView.get(0, "end").index(tabNum)
++        index = find_prog_row(tabNum)
+         index = index-1
+         tab1.progView.selection_clear(0, END)
+         tab1.progView.select_set(index)
+@@ -5599,7 +5710,7 @@
+         tabIndex = command.find("Tab")
+         tabNum = str(command[tabIndex+4:])
+         tabNum = ("Tab Number " + tabNum + "\r\n").encode('utf-8')
+-        index = tab1.progView.get(0, "end").index(tabNum)
++        index = find_prog_row(tabNum)
+         index = index-1
+         tab1.progView.selection_clear(0, END)
+         tab1.progView.select_set(index)
+@@ -5650,7 +5761,7 @@
+         tabIndex = command.find("Tab")
+         tabNum = str(command[tabIndex+4:])
+         tabNum = ("Tab Number " + tabNum + "\r\n").encode('utf-8')
+-        index = tab1.progView.get(0, "end").index(tabNum)
++        index = find_prog_row(tabNum)
+         index = index-1
+         tab1.progView.selection_clear(0, END)
+         tab1.progView.select_set(index)
+@@ -5701,7 +5812,7 @@
+         tabIndex = command.find("Tab")
+         tabNum = str(command[tabIndex+4:])
+         tabNum = ("Tab Number " + tabNum + "\r\n").encode('utf-8')
+-        index = tab1.progView.get(0, "end").index(tabNum)
++        index = find_prog_row(tabNum)
+         index = index-1
+         tab1.progView.selection_clear(0, END)
+         tab1.progView.select_set(index)
+@@ -5753,7 +5864,7 @@
+         tabIndex = command.find("Tab")
+         tabNum = str(command[tabIndex+4:])
+         tabNum = ("Tab Number " + tabNum + "\r\n").encode('utf-8')
+-        index = tab1.progView.get(0, "end").index(tabNum)
++        index = find_prog_row(tabNum)
+         index = index-1
+         tab1.progView.selection_clear(0, END)
+         tab1.progView.select_set(index)
+@@ -5806,7 +5917,7 @@
+         tabIndex = command.find("Tab")
+         tabNum = str(command[tabIndex+4:])
+         tabNum = ("Tab Number " + tabNum + "\r\n").encode('utf-8')
+-        index = tab1.progView.get(0, "end").index(tabNum)
++        index = find_prog_row(tabNum)
+         index = index-1
+         tab1.progView.selection_clear(0, END)
+         tab1.progView.select_set(index)
+@@ -5924,7 +6035,7 @@
+         RUN['moveInProc'] = 2
+     tabIndex = command.find("Tab-")
+     tabNum = ("Tab Number " + str(command[tabIndex+4:]) + "\r\n").encode('utf-8')
+-    index = tab1.progView.get(0, "end").index(tabNum)
++    index = find_prog_row(tabNum)
+     tab1.progView.selection_clear(0, END)
+     tab1.progView.select_set(index) 
+   ''' 
+@@ -7077,12 +7188,12 @@
+     status = visFind(template,min_score,background)
+     if (status == "pass"):
+       tabNum = ("Tab Number " + str(command[passIndex+6:failIndex]) + "\r\n").encode('utf-8')
+-      index = tab1.progView.get(0, "end").index(tabNum)
++      index = find_prog_row(tabNum)
+       tab1.progView.selection_clear(0, END)
+       tab1.progView.select_set(index)  
+     elif (status == "fail"): 
+       tabNum = ("Tab Number " + str(command[failIndex+6:]) + "\r\n").encode('utf-8')
+-      index = tab1.progView.get(0, "end").index(tabNum)
++      index = find_prog_row(tabNum)
+       tab1.progView.selection_clear(0, END)
+       tab1.progView.select_set(index) 
+   
+@@ -7145,7 +7256,7 @@
+       except OSError:
+           _xinput = None
+   if _xinput is None:
+-      raise OSError("XInput DLL not found")
++      logger.warning("XInput DLL not found - Xbox controller support disabled")
+ 
+   class XINPUT_GAMEPAD(ctypes.Structure):
+       _fields_ = [
+@@ -7159,9 +7270,13 @@
+       ]
+   class XINPUT_STATE(ctypes.Structure):
+       _fields_ = [("dwPacketNumber", ctypes.c_uint), ("Gamepad", XINPUT_GAMEPAD)]
+-  XInputGetState = _xinput.XInputGetState
+-  XInputGetState.argtypes = [ctypes.c_uint, ctypes.POINTER(XINPUT_STATE)]
+-  XInputGetState.restype  = ctypes.c_uint
++  if _xinput is not None:
++      XInputGetState = _xinput.XInputGetState
++      XInputGetState.argtypes = [ctypes.c_uint, ctypes.POINTER(XINPUT_STATE)]
++      XInputGetState.restype  = ctypes.c_uint
++  else:
++      def XInputGetState(_idx, _state):
++          return 1167  # ERROR_DEVICE_NOT_CONNECTED -> shows 'No XInput controller detected'
+ 
+   # ---------- Buttons / DPAD ----------
+   BTN_A = 0x1000
+@@ -7679,8 +7794,16 @@
+       _lbl("Xbox ON / polling…", style="Warn.TLabel")
+ 
+ else:
+-  from inputs import get_gamepad
++  try:
++    from inputs import get_gamepad
++  except ImportError:
++    get_gamepad = None
++    logger.warning("'inputs' package not installed - Xbox controller disabled (pip install inputs)")
+   def xbox():
++    if get_gamepad is None:
++      almStatusLab.config(text="XBOX: install the 'inputs' package (pip install inputs)", style="Warn.TLabel")
++      almStatusLab2.config(text="XBOX: install the 'inputs' package (pip install inputs)", style="Warn.TLabel")
++      return
+     def threadxbox():
+       # global RUN['xboxUse']
+       jogMode = 1
+@@ -11337,7 +11460,7 @@
+ def TestAuxCom():
+   try:
+     # global RUN['ser3']    
+-    port = "COM" + com3PortEntryField.get()     
++    port = resolve_serial_port(com3PortEntryField.get())
+     baud = 9600    
+     RUN['ser3'] = serial.Serial(port,baud,timeout=5)
+   except:
+@@ -11382,7 +11505,7 @@
+   elif __file__:
+     folder = os.path.dirname(os.path.realpath(__file__))
+   #folder = os.path.dirname(os.path.realpath(__file__))
+-  filetypes = (('robot program', '*.ar4'),("all files", "*.*"))
++  filetypes = (('robot program', '*.ar4 *.AR4'),("all files", "*"))
+   filename = fd.askopenfilename(title='Open files',initialdir=folder,filetypes=filetypes)
+   name = os.path.basename(filename)
+   ProgEntryField.delete(0, 'end')
+@@ -14216,7 +14339,8 @@
+           RUN['selectedCam'] = i
+           break
+     #RUN['cap'] = cv2.VideoCapture(RUN['selectedCam']) 
+-    RUN['cap'] = cv2.VideoCapture(RUN['selectedCam'], cv2.CAP_DSHOW)
++    RUN['selectedCam'] = selected_camera_source()
++    RUN['cap'] = open_camera(RUN['selectedCam'])
+     for _ in range(5):
+       RUN['cap'].read()
+     show_frame()
+@@ -14251,7 +14375,8 @@
+       for i in range(l):
+         if (visoptions.get() == camList[i]):
+           RUN['selectedCam'] = i
+-      RUN['cap'] = cv2.VideoCapture(RUN['selectedCam']) 
++      RUN['selectedCam'] = selected_camera_source()
++      RUN['cap'] = open_camera(RUN['selectedCam'])
+       ret, frame = RUN['cap'].read()
+ 
+     brightness = int(VisBrightSlide.get())
+@@ -14340,7 +14465,8 @@
+     for i in range(l):
+       if (visoptions.get() == camList[i]):
+         RUN['selectedCam'] = i
+-    RUN['cap'] = cv2.VideoCapture(RUN['selectedCam']) 
++    RUN['selectedCam'] = selected_camera_source()
++    RUN['cap'] = open_camera(RUN['selectedCam'])
+     ret, frame = RUN['cap'].read()
+   brightness = int(VisBrightSlide.get())
+   contrast = int(VisContrastSlide.get())
+@@ -16017,8 +16143,8 @@
+     J1jogNeg(float(incrementEntryField.get()))
+   else:
+     LiveJointJog(1, -1)
+-J1jogNegBut.bind("<ButtonPress>", SelJ1jogNeg)
+-J1jogNegBut.bind("<ButtonRelease>", StopJog)
++J1jogNegBut.bind("<ButtonPress-1>",SelJ1jogNeg)
++J1jogNegBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ def SelJ1jogPos(self):
+   IncJogStatVal = int(RUN['IncJogStat'].get())
+@@ -16026,8 +16152,8 @@
+     J1jogPos(float(incrementEntryField.get()))
+   else:
+     LiveJointJog(1, 1)
+-J1jogPosBut.bind("<ButtonPress>", SelJ1jogPos)
+-J1jogPosBut.bind("<ButtonRelease>", StopJog)
++J1jogPosBut.bind("<ButtonPress-1>",SelJ1jogPos)
++J1jogPosBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ def J1sliderUpdate(event):
+   J1slidelabel.config(text=round(float(J1jogslide.get()),2))
+@@ -16051,8 +16177,8 @@
+     J2jogNeg(float(incrementEntryField.get()))
+   else:
+     LiveJointJog(2, -1)
+-J2jogNegBut.bind("<ButtonPress>", SelJ2jogNeg)
+-J2jogNegBut.bind("<ButtonRelease>", StopJog)
++J2jogNegBut.bind("<ButtonPress-1>",SelJ2jogNeg)
++J2jogNegBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ def SelJ2jogPos(self):
+   IncJogStatVal = int(RUN['IncJogStat'].get())
+@@ -16060,8 +16186,8 @@
+     J2jogPos(float(incrementEntryField.get()))
+   else:
+     LiveJointJog(2, 1)
+-J2jogPosBut.bind("<ButtonPress>", SelJ2jogPos)
+-J2jogPosBut.bind("<ButtonRelease>", StopJog)
++J2jogPosBut.bind("<ButtonPress-1>",SelJ2jogPos)
++J2jogPosBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ def J2sliderUpdate(event):
+   J2slidelabel.config(text=round(float(J2jogslide.get()),2))
+@@ -16084,8 +16210,8 @@
+     J3jogNeg(float(incrementEntryField.get()))
+   else:
+     LiveJointJog(3, -1)
+-J3jogNegBut.bind("<ButtonPress>", SelJ3jogNeg)
+-J3jogNegBut.bind("<ButtonRelease>", StopJog)
++J3jogNegBut.bind("<ButtonPress-1>",SelJ3jogNeg)
++J3jogNegBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ def SelJ3jogPos(self):
+   IncJogStatVal = int(RUN['IncJogStat'].get())
+@@ -16093,8 +16219,8 @@
+     J3jogPos(float(incrementEntryField.get()))
+   else:
+     LiveJointJog(3, 1)
+-J3jogPosBut.bind("<ButtonPress>", SelJ3jogPos)
+-J3jogPosBut.bind("<ButtonRelease>", StopJog)
++J3jogPosBut.bind("<ButtonPress-1>",SelJ3jogPos)
++J3jogPosBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ def J3sliderUpdate(event):
+   J3slidelabel.config(text=round(float(J3jogslide.get()),2))
+@@ -16117,8 +16243,8 @@
+     J4jogNeg(float(incrementEntryField.get()))
+   else:
+     LiveJointJog(4, -1)
+-J4jogNegBut.bind("<ButtonPress>", SelJ4jogNeg)
+-J4jogNegBut.bind("<ButtonRelease>", StopJog)
++J4jogNegBut.bind("<ButtonPress-1>",SelJ4jogNeg)
++J4jogNegBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ def SelJ4jogPos(self):
+   IncJogStatVal = int(RUN['IncJogStat'].get())
+@@ -16126,8 +16252,8 @@
+     J4jogPos(float(incrementEntryField.get()))
+   else:
+     LiveJointJog(4, 1)
+-J4jogPosBut.bind("<ButtonPress>", SelJ4jogPos)
+-J4jogPosBut.bind("<ButtonRelease>", StopJog)
++J4jogPosBut.bind("<ButtonPress-1>",SelJ4jogPos)
++J4jogPosBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ def J4sliderUpdate(event):
+   J4slidelabel.config(text=round(float(J4jogslide.get()),2))
+@@ -16150,8 +16276,8 @@
+     J5jogNeg(float(incrementEntryField.get()))
+   else:
+     LiveJointJog(5, -1)
+-J5jogNegBut.bind("<ButtonPress>", SelJ5jogNeg)
+-J5jogNegBut.bind("<ButtonRelease>", StopJog)
++J5jogNegBut.bind("<ButtonPress-1>",SelJ5jogNeg)
++J5jogNegBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ def SelJ5jogPos(self):
+   IncJogStatVal = int(RUN['IncJogStat'].get())
+@@ -16159,8 +16285,8 @@
+     J5jogPos(float(incrementEntryField.get()))
+   else:
+     LiveJointJog(5, 1)
+-J5jogPosBut.bind("<ButtonPress>", SelJ5jogPos)
+-J5jogPosBut.bind("<ButtonRelease>", StopJog)
++J5jogPosBut.bind("<ButtonPress-1>",SelJ5jogPos)
++J5jogPosBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ def J5sliderUpdate(event):
+   J5slidelabel.config(text=round(float(J5jogslide.get()),2))
+@@ -16183,8 +16309,8 @@
+     J6jogNeg(float(incrementEntryField.get()))
+   else:
+     LiveJointJog(6, -1)
+-J6jogNegBut.bind("<ButtonPress>", SelJ6jogNeg)
+-J6jogNegBut.bind("<ButtonRelease>", StopJog)
++J6jogNegBut.bind("<ButtonPress-1>",SelJ6jogNeg)
++J6jogNegBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ def SelJ6jogPos(self):
+   IncJogStatVal = int(RUN['IncJogStat'].get())
+@@ -16192,8 +16318,8 @@
+     J6jogPos(float(incrementEntryField.get()))
+   else:
+     LiveJointJog(6, 1)
+-J6jogPosBut.bind("<ButtonPress>", SelJ6jogPos)
+-J6jogPosBut.bind("<ButtonRelease>", StopJog)
++J6jogPosBut.bind("<ButtonPress-1>",SelJ6jogPos)
++J6jogPosBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ def J6sliderUpdate(event):
+   J6slidelabel.config(text=round(float(J6jogslide.get()),2))
+@@ -16276,41 +16402,41 @@
+     return _handler
+ 
+ 
+-XjogNegBut.bind("<ButtonPress>", handle_cart_jog("X", "neg", lambda inc: XjogNeg(inc)))
+-XjogNegBut.bind("<ButtonRelease>", StopJog)
++XjogNegBut.bind("<ButtonPress-1>",handle_cart_jog("X", "neg", lambda inc: XjogNeg(inc)))
++XjogNegBut.bind("<ButtonRelease-1>",StopJog)
+ 
+-XjogPosBut.bind("<ButtonPress>", handle_cart_jog("X", "pos", lambda inc: XjogPos(inc)))
+-XjogPosBut.bind("<ButtonRelease>", StopJog)
++XjogPosBut.bind("<ButtonPress-1>",handle_cart_jog("X", "pos", lambda inc: XjogPos(inc)))
++XjogPosBut.bind("<ButtonRelease-1>",StopJog)
+ 
+-YjogNegBut.bind("<ButtonPress>", handle_cart_jog("Y", "neg", lambda inc: YjogNeg(inc)))
+-YjogNegBut.bind("<ButtonRelease>", StopJog)
++YjogNegBut.bind("<ButtonPress-1>",handle_cart_jog("Y", "neg", lambda inc: YjogNeg(inc)))
++YjogNegBut.bind("<ButtonRelease-1>",StopJog)
+ 
+-YjogPosBut.bind("<ButtonPress>", handle_cart_jog("Y", "pos", lambda inc: YjogPos(inc)))
+-YjogPosBut.bind("<ButtonRelease>", StopJog)
++YjogPosBut.bind("<ButtonPress-1>",handle_cart_jog("Y", "pos", lambda inc: YjogPos(inc)))
++YjogPosBut.bind("<ButtonRelease-1>",StopJog)
+ 
+-ZjogNegBut.bind("<ButtonPress>", handle_cart_jog("Z", "neg", lambda inc: ZjogNeg(inc)))
+-ZjogNegBut.bind("<ButtonRelease>", StopJog)
++ZjogNegBut.bind("<ButtonPress-1>",handle_cart_jog("Z", "neg", lambda inc: ZjogNeg(inc)))
++ZjogNegBut.bind("<ButtonRelease-1>",StopJog)
+ 
+-ZjogPosBut.bind("<ButtonPress>", handle_cart_jog("Z", "pos", lambda inc: ZjogPos(inc)))
+-ZjogPosBut.bind("<ButtonRelease>", StopJog)
++ZjogPosBut.bind("<ButtonPress-1>",handle_cart_jog("Z", "pos", lambda inc: ZjogPos(inc)))
++ZjogPosBut.bind("<ButtonRelease-1>",StopJog)
+ 
+-RzjogNegBut.bind("<ButtonPress>", handle_cart_jog("Rz", "neg", lambda inc: RzjogNeg(inc)))
+-RzjogNegBut.bind("<ButtonRelease>", StopJog)
++RzjogNegBut.bind("<ButtonPress-1>",handle_cart_jog("Rz", "neg", lambda inc: RzjogNeg(inc)))
++RzjogNegBut.bind("<ButtonRelease-1>",StopJog)
+ 
+-RzjogPosBut.bind("<ButtonPress>", handle_cart_jog("Rz", "pos", lambda inc: RzjogPos(inc)))
+-RzjogPosBut.bind("<ButtonRelease>", StopJog)
++RzjogPosBut.bind("<ButtonPress-1>",handle_cart_jog("Rz", "pos", lambda inc: RzjogPos(inc)))
++RzjogPosBut.bind("<ButtonRelease-1>",StopJog)
+ 
+-RyjogNegBut.bind("<ButtonPress>", handle_cart_jog("Ry", "neg", lambda inc: RyjogNeg(inc)))
+-RyjogNegBut.bind("<ButtonRelease>", StopJog)
++RyjogNegBut.bind("<ButtonPress-1>",handle_cart_jog("Ry", "neg", lambda inc: RyjogNeg(inc)))
++RyjogNegBut.bind("<ButtonRelease-1>",StopJog)
+ 
+-RyjogPosBut.bind("<ButtonPress>", handle_cart_jog("Ry", "pos", lambda inc: RyjogPos(inc)))
+-RyjogPosBut.bind("<ButtonRelease>", StopJog)
++RyjogPosBut.bind("<ButtonPress-1>",handle_cart_jog("Ry", "pos", lambda inc: RyjogPos(inc)))
++RyjogPosBut.bind("<ButtonRelease-1>",StopJog)
+ 
+-RxjogNegBut.bind("<ButtonPress>", handle_cart_jog("Rx", "neg", lambda inc: RxjogNeg(inc)))
+-RxjogNegBut.bind("<ButtonRelease>", StopJog)
++RxjogNegBut.bind("<ButtonPress-1>",handle_cart_jog("Rx", "neg", lambda inc: RxjogNeg(inc)))
++RxjogNegBut.bind("<ButtonRelease-1>",StopJog)
+ 
+-RxjogPosBut.bind("<ButtonPress>", handle_cart_jog("Rx", "pos", lambda inc: RxjogPos(inc)))
+-RxjogPosBut.bind("<ButtonRelease>", StopJog)
++RxjogPosBut.bind("<ButtonPress-1>",handle_cart_jog("Rx", "pos", lambda inc: RxjogPos(inc)))
++RxjogPosBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ # Tool frame controls
+ TooljogFrame = LabelFrame(rightPanel, text="Tool Frame Control (Tx Ty Tz Trz Try Trx)", padding=5)
+@@ -16360,46 +16486,46 @@
+     return _handler
+ 
+ 
+-TXjogNegBut.bind("<ButtonPress>", handle_tool_jog("X", "neg", lambda inc: TXjogNeg(inc)))
+-TXjogNegBut.bind("<ButtonRelease>", StopJog)
++TXjogNegBut.bind("<ButtonPress-1>",handle_tool_jog("X", "neg", lambda inc: TXjogNeg(inc)))
++TXjogNegBut.bind("<ButtonRelease-1>",StopJog)
+ 
+-TXjogPosBut.bind("<ButtonPress>", handle_tool_jog("X", "pos", lambda inc: TXjogPos(inc)))
+-TXjogPosBut.bind("<ButtonRelease>", StopJog)
++TXjogPosBut.bind("<ButtonPress-1>",handle_tool_jog("X", "pos", lambda inc: TXjogPos(inc)))
++TXjogPosBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ 
+-TYjogNegBut.bind("<ButtonPress>", handle_tool_jog("Y", "neg", lambda inc: TYjogNeg(inc)))
+-TYjogNegBut.bind("<ButtonRelease>", StopJog)
++TYjogNegBut.bind("<ButtonPress-1>",handle_tool_jog("Y", "neg", lambda inc: TYjogNeg(inc)))
++TYjogNegBut.bind("<ButtonRelease-1>",StopJog)
+ 
+-TYjogPosBut.bind("<ButtonPress>", handle_tool_jog("Y", "pos", lambda inc: TYjogPos(inc)))
+-TYjogPosBut.bind("<ButtonRelease>", StopJog)
++TYjogPosBut.bind("<ButtonPress-1>",handle_tool_jog("Y", "pos", lambda inc: TYjogPos(inc)))
++TYjogPosBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ 
+-TZjogNegBut.bind("<ButtonPress>", handle_tool_jog("Z", "neg", lambda inc: TZjogNeg(inc)))
+-TZjogNegBut.bind("<ButtonRelease>", StopJog)
++TZjogNegBut.bind("<ButtonPress-1>",handle_tool_jog("Z", "neg", lambda inc: TZjogNeg(inc)))
++TZjogNegBut.bind("<ButtonRelease-1>",StopJog)
+ 
+-TZjogPosBut.bind("<ButtonPress>", handle_tool_jog("Z", "pos", lambda inc: TZjogPos(inc)))
+-TZjogPosBut.bind("<ButtonRelease>", StopJog)
++TZjogPosBut.bind("<ButtonPress-1>",handle_tool_jog("Z", "pos", lambda inc: TZjogPos(inc)))
++TZjogPosBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ 
+-TRzjogNegBut.bind("<ButtonPress>", handle_tool_jog("Rz", "neg", lambda inc: TRzjogNeg(inc)))
+-TRzjogNegBut.bind("<ButtonRelease>", StopJog)
++TRzjogNegBut.bind("<ButtonPress-1>",handle_tool_jog("Rz", "neg", lambda inc: TRzjogNeg(inc)))
++TRzjogNegBut.bind("<ButtonRelease-1>",StopJog)
+ 
+-TRzjogPosBut.bind("<ButtonPress>", handle_tool_jog("Rz", "pos", lambda inc: TRzjogPos(inc)))
+-TRzjogPosBut.bind("<ButtonRelease>", StopJog)
++TRzjogPosBut.bind("<ButtonPress-1>",handle_tool_jog("Rz", "pos", lambda inc: TRzjogPos(inc)))
++TRzjogPosBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ 
+-TRyjogNegBut.bind("<ButtonPress>", handle_tool_jog("Ry", "neg", lambda inc: TRyjogNeg(inc)))
+-TRyjogNegBut.bind("<ButtonRelease>", StopJog)
++TRyjogNegBut.bind("<ButtonPress-1>",handle_tool_jog("Ry", "neg", lambda inc: TRyjogNeg(inc)))
++TRyjogNegBut.bind("<ButtonRelease-1>",StopJog)
+ 
+-TRyjogPosBut.bind("<ButtonPress>", handle_tool_jog("Ry", "pos", lambda inc: TRyjogPos(inc)))
+-TRyjogPosBut.bind("<ButtonRelease>", StopJog)
++TRyjogPosBut.bind("<ButtonPress-1>",handle_tool_jog("Ry", "pos", lambda inc: TRyjogPos(inc)))
++TRyjogPosBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ 
+-TRxjogNegBut.bind("<ButtonPress>", handle_tool_jog("Rx", "neg", lambda inc: TRxjogNeg(inc)))
+-TRxjogNegBut.bind("<ButtonRelease>", StopJog)
++TRxjogNegBut.bind("<ButtonPress-1>",handle_tool_jog("Rx", "neg", lambda inc: TRxjogNeg(inc)))
++TRxjogNegBut.bind("<ButtonRelease-1>",StopJog)
+ 
+-TRxjogPosBut.bind("<ButtonPress>", handle_tool_jog("Rx", "pos", lambda inc: TRxjogPos(inc)))
+-TRxjogPosBut.bind("<ButtonRelease>", StopJog)
++TRxjogPosBut.bind("<ButtonPress-1>",handle_tool_jog("Rx", "pos", lambda inc: TRxjogPos(inc)))
++TRxjogPosBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ 
+ # Extra axes (J7, J8, J9)
+@@ -16455,8 +16581,8 @@
+     J7jogNeg(float(incrementEntryField.get()))
+   else:
+     LiveJointJog(7, -1)
+-J7jogNegBut.bind("<ButtonPress>", SelJ7jogNeg)
+-J7jogNegBut.bind("<ButtonRelease>", StopJog)
++J7jogNegBut.bind("<ButtonPress-1>",SelJ7jogNeg)
++J7jogNegBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ def SelJ7jogPos(self):
+   IncJogStatVal = int(RUN['IncJogStat'].get())
+@@ -16464,8 +16590,8 @@
+     J7jogPos(float(incrementEntryField.get()))
+   else:
+     LiveJointJog(7, 1)
+-J7jogPosBut.bind("<ButtonPress>", SelJ7jogPos)
+-J7jogPosBut.bind("<ButtonRelease>", StopJog)
++J7jogPosBut.bind("<ButtonPress-1>",SelJ7jogPos)
++J7jogPosBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ def J7sliderUpdate(event):
+   J7slideLimLab.config(state="normal")
+@@ -16527,8 +16653,8 @@
+     J8jogNeg(float(incrementEntryField.get()))
+   else:
+     LiveJointJog(8, -1)
+-J8jogNegBut.bind("<ButtonPress>", SelJ8jogNeg)
+-J8jogNegBut.bind("<ButtonRelease>", StopJog)
++J8jogNegBut.bind("<ButtonPress-1>",SelJ8jogNeg)
++J8jogNegBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ def SelJ8jogPos(self):
+   IncJogStatVal = int(RUN['IncJogStat'].get())
+@@ -16536,8 +16662,8 @@
+     J8jogPos(float(incrementEntryField.get()))
+   else:
+     LiveJointJog(8, 1)
+-J8jogPosBut.bind("<ButtonPress>", SelJ8jogPos)
+-J8jogPosBut.bind("<ButtonRelease>", StopJog)
++J8jogPosBut.bind("<ButtonPress-1>",SelJ8jogPos)
++J8jogPosBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ def J8sliderUpdate(event):
+   J8slideLimLab.config(state="normal")
+@@ -16600,8 +16726,8 @@
+     J9jogNeg(float(incrementEntryField.get()))
+   else:
+     LiveJointJog(9, -1)
+-J9jogNegBut.bind("<ButtonPress>", SelJ9jogNeg)
+-J9jogNegBut.bind("<ButtonRelease>", StopJog)
++J9jogNegBut.bind("<ButtonPress-1>",SelJ9jogNeg)
++J9jogNegBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ def SelJ9jogPos(self):
+   IncJogStatVal = int(RUN['IncJogStat'].get())
+@@ -16609,8 +16735,8 @@
+     J9jogPos(float(incrementEntryField.get()))
+   else:
+     LiveJointJog(9, 1)
+-J9jogPosBut.bind("<ButtonPress>", SelJ9jogPos)
+-J9jogPosBut.bind("<ButtonRelease>", StopJog)
++J9jogPosBut.bind("<ButtonPress-1>",SelJ9jogPos)
++J9jogPosBut.bind("<ButtonRelease-1>",StopJog)
+ 
+ def J9sliderUpdate(event):
+   J9slideLimLab.config(state="normal")
+@@ -16895,7 +17021,7 @@
+   else:
+     port1_default = "None"
+   
+-  if globals().get('CAL', {}).get('com2ort') not in ("", None, "None"):
++  if globals().get('CAL', {}).get('com2Port')not in ("", None, "None"):
+     port2_default = CAL['com2Port']
+   else:
+     port2_default = "None"
+@@ -19118,8 +19244,8 @@
+ match CE['Platform']['OS']:
+ 
+   case "Windows":
+-    graph = FilterGraph()
+     try:
++      graph = FilterGraph()
+       allcams = graph.get_input_devices()
+     except Exception:
+       allcams = ["Select a Camera"]
+@@ -19129,6 +19255,8 @@
+     camList = [n for n in allcams if not any(b in n.lower() for b in _ban)]
+     if not camList:
+       camList = allcams[:]  # fallback if everything got filtered
++    # Index in the unfiltered list is the DirectShow device number OpenCV expects
++    CAMERA_LABEL_TO_ID.update({name: i for i, name in enumerate(allcams)})
+     # ----------------------------------------------------------
+ 
+     visoptions = StringVar(tab6)
+@@ -19146,19 +19274,29 @@
+     except Exception:
+       logger.error("no camera")
+ 
+-  case "Linux":
+-    # Build label->id map
+-    label_to_id = {c.label: c.id for c in CE['Cameras']['Enum']}
+-    camList = list(label_to_id.keys())
++  case _:
++    # Linux (and any other non-Windows OS): camera list from AR4config, else probe /dev/video*
++    label_to_id = {}
++    try:
++      label_to_id = {c.label: c.id for c in CE['Cameras']['Enum']}
++    except Exception as e:
++      logger.warning(f"Camera enumeration from config failed: {e}")
++    if not label_to_id:
++      for _i in range(10):
++        _dev = f"/dev/video{_i}"
++        if os.path.exists(_dev):
++          label_to_id[_dev] = _dev
++    CAMERA_LABEL_TO_ID.update(label_to_id)
++    camList = list(label_to_id.keys()) or ["Select a Camera"]
+ 
+-    selected_label = tk.StringVar(value=(camList[0] if camList else "Select a Camera"))
++    selected_label = tk.StringVar(value=camList[0])
+ 
+     visoptions = StringVar(tab6)
+-    visoptions.set("Select a Camera")
++    visoptions.set(camList[0])
+ 
+     def on_camera_select(chosen_label):
+       cam_id = label_to_id.get(chosen_label, "None")
+-      logger.debug("Debug - User picked:", chosen_label, " -> using id:", cam_id)
++      logger.debug("User picked camera %s -> using id %s", chosen_label, cam_id)
+ 
+     try:
+       vismenu = OptionMenu(tab6, visoptions, selected_label.get(), *camList, command=on_camera_select)

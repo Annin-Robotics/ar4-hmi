@@ -1,0 +1,4 @@
+{
+    "python-envs.defaultEnvManager": "ms-python.python:system",
+    "cmake.sourceDirectory": "C:/Users/chris/OneDrive/Documents/GitHub/ar4-hmi-dev/ARrobots/src"
+}
