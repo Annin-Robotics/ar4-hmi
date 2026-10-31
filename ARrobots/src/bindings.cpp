@@ -50,6 +50,10 @@ void SetJointLimits(const std::vector<float>& pos_limits, const std::vector<floa
     for (size_t i = 0; i < ROBOT_nDOFs; ++i) {
         JointPosLimit[i] = pos_limits[i];
         JointNegLimit[i] = neg_limits[i];
+        // The solver validates and unwraps against these (robot_joints_valid), so the
+        // configured limits must land here too, not only in the Python-facing copies.
+        Robot_JointLimits_Upper[i] = pos_limits[i];
+        Robot_JointLimits_Lower[i] = neg_limits[i];
     }
 }
 
@@ -83,8 +87,22 @@ PYBIND11_MODULE(robot_kinematics, m) {
         return joints_out;
     });
 
+    // Bump when the solver behaviour changes so AR4.py can tell a stale build from this source.
+    m.attr("API_VERSION") = 2;
+
     m.def("SolveInverseKinematics", &SolveInverseKinematics,
-      py::arg("xyzuvw_In"), py::arg("JangleIn_in"));
+      py::arg("xyzuvw_In"), py::arg("JangleIn_in"), py::arg("max_jump_deg") = 0.0f,
+      "IK in the robot's slot order (xyzuvw: mm + rotation vector in degrees). "
+      "max_jump_deg > 0 rejects solutions that move any joint farther than that (use for "
+      "interpolated moves and live jogs). Returns [] when there is no solution.");
+
+    m.def("SolveInverseKinematicsConfigured", &SolveInverseKinematicsConfigured,
+      py::arg("xyzuvw_In"), py::arg("JangleIn_in"), py::arg("wrist_config") = "A",
+      py::arg("max_jump_deg") = 0.0f,
+      "Same as SolveInverseKinematics with a wrist configuration: F (J5 >= 0), N (J5 <= 0), A (auto).");
+
+    m.def("kinematic_error", []() { return KinematicError; },
+      "1 when the last IK call found no (acceptable) solution.");
       
 
     m.def("get_dh_parameters", []() {

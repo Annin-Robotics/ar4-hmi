@@ -1,0 +1,47 @@
+from ARrobots.ARnano import ARNano
+import time
+
+nano = ARNano(port="COM5")
+nano.connect()
+
+print("Nano:", nano.hello())
+
+print("\n----------------------------------------")
+print("1. Gripper Close")
+print("----------------------------------------")
+print(nano.gripper_close())
+time.sleep(2)
+
+print("\n----------------------------------------")
+print("2. Gripper Open")
+print("----------------------------------------")
+print(nano.gripper_open())
+time.sleep(2)
+
+print("\n----------------------------------------")
+print("3. Servo 0 -> 0°")
+print("----------------------------------------")
+print(nano.servo_write(num=0, pos=0))
+time.sleep(2)
+
+print("\n----------------------------------------")
+print("4. Servo 0 -> 45°")
+print("----------------------------------------")
+print(nano.servo_write(num=0, pos=45))
+time.sleep(2)
+
+print("\n----------------------------------------")
+print("5. Output 8 ON")
+print("----------------------------------------")
+print(nano.set_output(pin=8, state=1))
+time.sleep(2)
+
+print("\n----------------------------------------")
+print("6. Output 8 OFF")
+print("----------------------------------------")
+print(nano.set_output(pin=8, state=0))
+time.sleep(2)
+
+nano.disconnect()
+
+print("\nDone")

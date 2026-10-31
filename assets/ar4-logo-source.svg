@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!-- Created with Friction - https://friction.graphics -->
+<svg xmlns:xlink="http://www.w3.org/1999/xlink" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080">
+ <rect fill="rgba(0, 0, 0, 1)" width="1920" height="1080"/>
+ <g transform="translate(1236.15 693.01)">
+  <g transform="translate(-250.05 -132.856)">
+   <g transform="rotate(0)">
+    <g transform="scale(9.71647 9.71647)">
+     <g transform="skewX(0) skewY(0)">
+      <g opacity="1" transform="translate(-1236.15 -693.01)">
+       <g id="Group">
+        <g transform="translate(0 0)">
+         <g transform="translate(1135.87 752.015)">
+          <g transform="rotate(0)">
+           <g transform="scale(1 1)">
+            <g transform="skewX(0) skewY(0)">
+             <g opacity="1" transform="translate(0 0)">
+              <path fill="rgba(255, 255, 255, 1)" stroke-width="10" stroke="none" stroke-linecap="round" stroke-linejoin="round" d="M47.9667 -113.941C47.9667 -113.941 75.6241 -113.941 75.8735 -113.941C75.8735 -113.941 114.304 -26.3838 114.304 -26.3838C114.304 -26.3838 114.304 -50.845 114.304 -50.845C114.304 -50.845 105.147 -67.0219 105.147 -67.0219C105.147 -67.0219 151.421 -67.0219 166.561 -67.0219C181.701 -67.0219 178.716 -91.6515 166.348 -91.6515C153.98 -91.6515 94.2716 -91.8648 94.4849 -91.8648C94.6981 -91.8648 85.1022 -113.941 85.1022 -113.941C85.1022 -113.941 136.707 -113.941 168.054 -113.941C199.401 -113.941 216.621 -61.9257 171.044 -40.8096C171.044 -40.8096 190.789 -8.014 190.789 -8.014C190.789 -8.014 166.513 -8.014 166.513 -8.014C166.513 -8.014 143.491 -42.2731 143.491 -42.2731C143.491 -42.2731 134.596 -42.2731 134.596 -42.2731C134.596 -42.2731 134.596 -8.014 134.596 -8.014C134.596 -8.014 95.8232 -8.014 95.8232 -8.014C95.8232 -8.014 61.2824 -81.7873 61.2824 -81.7873C61.2824 -81.7873 30.1196 -8.014 30.1196 -8.014C30.1196 -8.014 1.79698 -8.014 1.79698 -8.014C1.79698 -8.014 47.9667 -113.941 47.9667 -113.941Z" id="Path8"/>
+             </g>
+            </g>
+           </g>
+          </g>
+         </g>
+        </g>
+        <g transform="translate(8.38325 9.69754)">
+         <g transform="translate(1190.66 708.122)">
+          <g transform="rotate(0)">
+           <g transform="scale(1 1)">
+            <g transform="skewX(0) skewY(0)">
+             <g opacity="1" transform="translate(-8.38325 -9.69754)">
+              <path fill="rgba(255, 255, 255, 1)" stroke-width="10" stroke="none" stroke-linecap="round" stroke-linejoin="round" d="M0.373199 -2.70895C0.373199 -2.70895 14.6635 -2.70895 14.6635 -2.70895C14.6635 -2.70895 25.4175 21.7546 25.4175 21.7546C25.4175 21.7546 -10.7476 21.7546 -10.7476 21.7546C-10.7476 21.7546 0.373199 -2.70895 0.373199 -2.70895Z" id="Path"/>
+             </g>
+            </g>
+           </g>
+          </g>
+         </g>
+        </g>
+       </g>
+      </g>
+     </g>
+    </g>
+   </g>
+  </g>
+ </g>
+ <defs>
+  <linearGradient id="0x000055ee752ef560">
+   <stop stop-color="rgba(0, 0, 0, 1)" offset="0"/>
+   <stop stop-color="rgba(255, 255, 255, 1)" offset="1"/>
+  </linearGradient>
+ </defs>
+</svg>
+

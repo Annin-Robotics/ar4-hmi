@@ -1,7 +1,7 @@
 
 Using Source Code
 	- review source code video https://youtu.be/2VGkgCKXVc0
-	1. Install Python  
+	1. Install Python 3.14.6 
 	2. Open CMD window and navigate to the folder python was installed in.
 	3. Load each of the following Python modules:
 		python -m pip install pyserial
@@ -16,7 +16,10 @@ Using Source Code
 		python -m pip install datetime
 		python -m pip install pathlib
 		python -m pip install scipy
-		python -m pip installttkbootstrap
+		python -m pip install ttkbootstrap
+        python -m pip install vtk
+		python -m pip install pywin32
+		python -m pip install cadquery
 		
 		
     4. Compile kinematics.cpp
@@ -31,7 +34,7 @@ Using Source Code
 
 	5. To convert ARCS.py to an EXE file python open CMD window and navigate to the folder python was installed in.
 		and then install program: -m pip install auto-py-to-exe.
-		Next execute the execute py to exe program by typing python -m auto_py_to_exe in cmd window.
+		Next execute the execute py to exe program by typing "python -m auto_py_to_exe" in cmd window.
 		add each of these to Advanced Options --Hidded-import
 			vtkmodules.all
 			vtkmodules.util.execution_model
@@ -42,5 +45,8 @@ Using Source Code
 			vtkmodules.vtkCommonDataModel
 			vtkmodules.vtkCommonExecutionModel
 			vtkmodules.util.data_model
+			
+        add the folder ARrobots to additional paths.  		
+		
 		Use this program to create the exe files. Copy all .ico, .gif and program files from source code folder into your new exe folder otherwise exe will not work.
 		

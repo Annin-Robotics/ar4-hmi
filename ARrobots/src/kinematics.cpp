@@ -5,6 +5,9 @@
 #include <vector>
 #include <array>     // optional for Matrix4x4
 #include <iostream>
+#include <string>
+#include <stdexcept>
+#include <cctype>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846f
@@ -272,7 +275,7 @@ void robot_set() {
     Robot_Kin_DHM_L3[DHM_Alpha] = 0.0;
     Robot_Kin_DHM_L4[DHM_Alpha] = -0.5f * M_PI;
     Robot_Kin_DHM_L5[DHM_Alpha] = 0.5f * M_PI;
-    Robot_Kin_DHM_L6[DHM_Alpha] = M_PI;
+    Robot_Kin_DHM_L6[DHM_Alpha] = -0.5f * M_PI;
 
     // Theta (joint mastering offsets)
     Robot_Kin_DHM_L1[DHM_Theta] = 0.0f;
@@ -533,32 +536,83 @@ void forward_kinematics_robot_xyzuvw(const T joints[ROBOT_nDOFs], T target_xyzuv
 
 
 
+// --- solver tuning --------------------------------------------------------------------
+static const float IK_SING_SIN_EPS = 1e-4f;   // |sin J5| below this: wrist singular (J5 < 0.006 deg)
+static const float IK_DUP_TOL_DEG = 1e-3f;    // solutions closer than this on every joint are one solution
+
+static inline float wrap180(float a) {
+    while (a > 180.0f) a -= 360.0f;
+    while (a < -180.0f) a += 360.0f;
+    return a;
+}
+
+static inline float angdiff_deg(float a, float b) {
+    float d = a - b;
+    while (d > 180.0f) d -= 360.0f;
+    while (d < -180.0f) d += 360.0f;
+    return d;
+}
+
+static inline int sgn_with_db(float v, float db) {
+    if (v > db) return +1;
+    if (v < -db) return -1;
+    return 0;
+}
+
+static inline bool ik_same_solution(const float a[ROBOT_nDOFs], const float b[ROBOT_nDOFs]) {
+    for (int j = 0; j < ROBOT_nDOFs; j++) {
+        if (std::fabs(angdiff_deg(a[j], b[j])) > IK_DUP_TOL_DEG) return false;
+    }
+    return true;
+}
+
+// Among a, a + 360 and a - 360 pick the value inside the joint limits closest to ref.
+// A wrist joint reported as -180 while the robot sits at +179.9 is the same angle; without
+// this the robot (real and virtual) wound the joint a full turn.
+static inline float ik_unwrap_into_limits(float a, float ref, float lowerMag, float upper) {
+    float best = a;
+    float bestD = std::fabs(a - ref);
+    const float cands[2] = { a + 360.0f, a - 360.0f };
+    for (int k = 0; k < 2; k++) {
+        float c = cands[k];
+        if (c < -lowerMag || c > upper) continue;
+        float d = std::fabs(c - ref);
+        if (d < bestD) { best = c; bestD = d; }
+    }
+    return best;
+}
+
 void JointEstimate() {
     for (int i = 0; i < ROBOT_nDOFs; i++) {
         joints_estimate[i] = JangleIn[i];
     }
 }
 
-
-
-std::vector<float> SolveInverseKinematics(const std::vector<float>& xyzuvw_In,
-                                          const std::vector<float>& JangleIn_in) {
+/// Solve IK for xyzuvw_In (mm, rotation vector in degrees) starting from JangleIn_in (deg).
+/// wrist_config: "F" (J5 >= 0), "N" (J5 <= 0) or "A" (automatic, keep the current branch).
+/// max_jump_deg > 0 rejects a solution that moves any joint more than that far from the
+/// estimate: used for interpolated motion (Move L / Move A / live jogs) where consecutive
+/// targets are ~1 mm apart, so a joint "jumping" 180 or 360 degrees is a discontinuity
+/// (wrist flip through a singularity, J4/J6 wrapping at +/-180), not a move to perform.
+/// Returns the joint angles, or an empty vector (KinematicError = 1) when there is none.
+std::vector<float> SolveInverseKinematicsConfigured(const std::vector<float>& xyzuvw_In,
+                                                    const std::vector<float>& JangleIn_in,
+                                                    const std::string& wrist_config,
+                                                    float max_jump_deg) {
     float joints[ROBOT_nDOFs];
     float target[6];
-
-    float solbuffer[ROBOT_nDOFs] = { 0 };
     int NumberOfSol = 0;
-    int solVal = 0;
 
     KinematicError = 0;
+
+    if (xyzuvw_In.size() != 6) throw std::runtime_error("Expected 6-element xyzuvw input");
+    if (JangleIn_in.size() != ROBOT_nDOFs) throw std::runtime_error("Expected 6-element joint estimate");
 
     for (int i = 0; i < ROBOT_nDOFs; i++) {
         JangleIn[i] = JangleIn_in[i];
     }
+    JointEstimate();
 
-    JointEstimate();  // updates joints_estimate with best guess
-
-    // Copy and convert target orientation to radians
     target[0] = xyzuvw_In[0];
     target[1] = xyzuvw_In[1];
     target[2] = xyzuvw_In[2];
@@ -566,68 +620,140 @@ std::vector<float> SolveInverseKinematics(const std::vector<float>& xyzuvw_In,
     target[4] = xyzuvw_In[4] * M_PI / 180.0f;
     target[5] = xyzuvw_In[5] * M_PI / 180.0f;
 
-    
-    for (int i = -3; i <= 3; i++) {
-        joints_estimate[4] = i * 30;  // sweep J5 to get multiple solutions
-        int success = inverse_kinematics_robot_xyzuvw(target, joints, joints_estimate);
-        if (success) {
-            if (solbuffer[4] != joints[4]) {
-                if (robot_joints_valid(joints)) {
-                    for (int j = 0; j < ROBOT_nDOFs; j++) {
-                        solbuffer[j] = joints[j];
-                        SolutionMatrix[j][NumberOfSol] = solbuffer[j];
-                    }
-                    if (NumberOfSol <= 6) {
-                        NumberOfSol++;
-                    }
-                }
-            }
-        } else {
-            KinematicError = 1;
-        }
-    }
+    // One call per wrist branch (J5 >= 0, J5 < 0): the raw solver only looks at the sign of
+    // the J5 estimate, so this covers every solution. At the singularity both branches give
+    // the same joints and the duplicate is dropped (the old code compared the first solution
+    // against a zero-filled buffer, so a solution with J5 == 0 was always thrown away).
+    const float branchEst[2] = { 30.0f, -30.0f };
+    for (int b = 0; b < 2; b++) {
+        joints_estimate[4] = branchEst[b];
+        if (!inverse_kinematics_robot_xyzuvw<float>(target, joints, joints_estimate)) continue;
 
-    joints_estimate[4] = JangleIn[4];  // restore original J5 guess
-
-    solVal = 0;
-    for (int i = 0; i < ROBOT_nDOFs; i++) {
-        if ((std::abs(joints_estimate[i] - SolutionMatrix[i][0]) > 20.0f) && NumberOfSol > 1) {
-            solVal = 1;
-        } else if ((std::abs(joints_estimate[i] - SolutionMatrix[i][1]) > 20.0f) && NumberOfSol > 1) {
-            solVal = 0;
+        for (int j = 0; j < ROBOT_nDOFs; j++) {
+            joints[j] = wrap180(joints[j]);
+            joints[j] = ik_unwrap_into_limits(joints[j], JangleIn[j],
+                                              Robot_JointLimits_Lower[j], Robot_JointLimits_Upper[j]);
         }
+        if (!robot_joints_valid(joints)) continue;
+
+        bool dup = false;
+        for (int s = 0; s < NumberOfSol && !dup; s++) {
+            float stored[ROBOT_nDOFs];
+            for (int j = 0; j < ROBOT_nDOFs; j++) stored[j] = SolutionMatrix[j][s];
+            dup = ik_same_solution(stored, joints);
+        }
+        if (dup) continue;
+
+        for (int j = 0; j < ROBOT_nDOFs; j++) SolutionMatrix[j][NumberOfSol] = joints[j];
+        NumberOfSol++;
     }
+    joints_estimate[4] = JangleIn[4];
 
     if (NumberOfSol == 0) {
         KinematicError = 1;
+        return {};
+    }
+
+    // ---- choose the branch ----------------------------------------------------------
+    char wc = 0;
+    if (!wrist_config.empty()) {
+        wc = static_cast<char>(std::toupper(static_cast<unsigned char>(wrist_config[0])));
+    }
+
+    const float J5_DB = 0.5f;     // deg: J5 sign deadband
+    const float SING_DB = 2.0f;   // deg: near-singular zone
+    const float curWristSum = JangleIn[3] + JangleIn[5];
+
+    int desiredW5 = sgn_with_db(JangleIn[4], J5_DB);
+    if (desiredW5 == 0) desiredW5 = +1;
+    if (wc == 'F') desiredW5 = +1;
+    if (wc == 'N') desiredW5 = -1;
+
+    int best = -1;
+    float bestCost = 1e30f;
+
+    for (int s = 0; s < NumberOfSol; s++) {
+        float j5 = SolutionMatrix[4][s];
+        float absJ5 = std::fabs(j5);
+        int solW5 = sgn_with_db(j5, J5_DB);
+
+        // Joint travel from the current position (solutions are already unwrapped, so a
+        // plain difference is the real distance the joint would move).
+        float cost = 0.0f;
+        for (int j = 0; j < ROBOT_nDOFs; j++) {
+            cost += std::fabs(SolutionMatrix[j][s] - joints_estimate[j]);
+        }
+
+        if (wc == 'F' || wc == 'N') {
+            // Requested wrist: strict away from the singularity, strong bias close to it.
+            if (absJ5 > SING_DB) {
+                if (solW5 != 0 && solW5 != desiredW5) continue;
+                if (solW5 == 0) cost += 50.0f;
+            } else if (solW5 != 0 && solW5 != desiredW5) {
+                cost += 200.0f;
+            }
+        } else if (wc == 'A') {
+            // Automatic: allow a flip, mild bias toward the current branch.
+            if (absJ5 > SING_DB && solW5 != 0 && solW5 != desiredW5) cost += 20.0f;
+        } else {
+            // Unknown / empty: keep the current branch.
+            if (absJ5 > SING_DB) {
+                if (solW5 != 0 && solW5 != desiredW5) continue;
+            } else if (solW5 != 0 && solW5 != desiredW5) {
+                cost += 200.0f;
+            }
+        }
+
+        // Near the singularity only J4 + J6 is meaningful: keep it continuous.
+        if (absJ5 <= SING_DB) {
+            float solWristSum = SolutionMatrix[3][s] + SolutionMatrix[5][s];
+            cost += 5.0f * std::fabs(angdiff_deg(solWristSum, curWristSum));
+        }
+
+        if (cost < bestCost) {
+            bestCost = cost;
+            best = s;
+        }
+    }
+
+    // The wrist filter rejected everything: fall back to the closest solution.
+    if (best < 0) {
+        bestCost = 1e30f;
+        for (int s = 0; s < NumberOfSol; s++) {
+            float cost = 0.0f;
+            for (int j = 0; j < ROBOT_nDOFs; j++) {
+                cost += std::fabs(SolutionMatrix[j][s] - joints_estimate[j]);
+            }
+            if (cost < bestCost) {
+                bestCost = cost;
+                best = s;
+            }
+        }
     }
 
     for (int i = 0; i < ROBOT_nDOFs; i++) {
-        JangleOut[i] = SolutionMatrix[i][solVal];
+        JangleOut[i] = SolutionMatrix[i][best];
     }
-   return std::vector<float>(JangleOut, JangleOut + ROBOT_nDOFs); 
 
-   
-
-    /* 
-    int success = inverse_kinematics_robot_xyzuvw(target, joints, joints_estimate);
-    if (success) {
-        std::cout << "IK succeeded\n";
-        for (int j = 0; j < ROBOT_nDOFs; j++) {
-            JangleOut[j] = joints[j];
-            std::cout << "J" << j+1 << ": " << joints[j] << "\n";
+    if (max_jump_deg > 0.0f) {
+        for (int i = 0; i < ROBOT_nDOFs; i++) {
+            if (std::fabs(JangleOut[i] - JangleIn[i]) > max_jump_deg) {
+                KinematicError = 1;
+                return {};
+            }
         }
-    } else {
-        std::cout << "IK failed\n";
-        KinematicError = 1;
-        throw std::runtime_error("IK failed for initial estimate");
     }
 
-    
-
+    KinematicError = 0;
     return std::vector<float>(JangleOut, JangleOut + ROBOT_nDOFs);
-    */
+}
 
+
+// Backward-compatible wrapper for the existing pybind11 binding/HMI call.
+std::vector<float> SolveInverseKinematics(const std::vector<float>& xyzuvw_In,
+                                          const std::vector<float>& JangleIn_in,
+                                          float max_jump_deg) {
+    return SolveInverseKinematicsConfigured(xyzuvw_In, JangleIn_in, "A", max_jump_deg);
 }
 
 
@@ -672,81 +798,53 @@ void DHM_2_pose(T rx, T tx, T rz, T tz, Matrix4x4 pose)
 template <typename T>
 void pose_2_xyzuvw(const Matrix4x4 pose, T out[6])
 {
-    T sin_angle;
-    T angle;
-    T vector[3];
-    int iidx;
-    int vector_tmp;
-    signed char b_I[9];
+    // Rotation matrix -> rotation vector, computed in double precision.
+    // Uses atan2 + a normalized axis so the result stays correct near 180 deg
+    // (tool pointing straight down), where dividing by sin(angle) in float
+    // used to return a wrong-length axis and a garbage orientation.
+    const double r00 = pose[0], r10 = pose[1], r20 = pose[2];
+    const double r01 = pose[4], r11 = pose[5], r21 = pose[6];
+    const double r02 = pose[8], r12 = pose[9], r22 = pose[10];
+
     out[0] = pose[12];
     out[1] = pose[13];
     out[2] = pose[14];
-    sin_angle = (((pose[0] + pose[5]) + pose[10]) - 1.0) * 0.5;
-    if (sin_angle <= -1.0) {
-        sin_angle = -1.0;
-    }
 
-    if (sin_angle >= 1.0) {
-        sin_angle = 1.0;
-    }
+    double v[3] = { r21 - r12, r02 - r20, r10 - r01 };   // 2*sin(angle)*axis
+    double vnorm = std::sqrt(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    double c = std::max(-1.0, std::min(1.0, ((r00 + r11 + r22) - 1.0) * 0.5));
+    double angle = std::atan2(0.5 * vnorm, c);
+    double axis[3] = { 0.0, 0.0, 0.0 };
 
-    angle = std::acos(sin_angle);
-    if (angle < 1.0E-6) {
-        vector[0] = 0.0;
-        vector[1] = 0.0;
-        vector[2] = 0.0;
+    if (angle < 1.0E-9) {
+        // no rotation
+    }
+    else if (c > -0.5) {
+        // well-conditioned: axis from the skew-symmetric part
+        axis[0] = v[0] / vnorm; axis[1] = v[1] / vnorm; axis[2] = v[2] / vnorm;
     }
     else {
-        sin_angle = std::sin(angle);
-        if (std::abs(sin_angle) < 1.0E-6) {
-            sin_angle = pose[0];
-            iidx = 0;
-            if (pose[0] < pose[5]) {
-                sin_angle = pose[5];
-                iidx = 1;
-            }
-
-            if (sin_angle < pose[10]) {
-                sin_angle = pose[10];
-                iidx = 2;
-            }
-
-            for (vector_tmp = 0; vector_tmp < 9; vector_tmp++) {
-                b_I[vector_tmp] = 0;
-            }
-
-            b_I[0] = 1;
-            b_I[4] = 1;
-            b_I[8] = 1;
-            sin_angle = 2.0 * (1.0 + sin_angle);
-            if (sin_angle <= 0.0) {
-                sin_angle = 0.0;
-            }
-            else {
-                sin_angle = std::sqrt(sin_angle);
-            }
-
-            vector_tmp = iidx << 2;
-            vector[0] = (pose[vector_tmp] + static_cast<T>(b_I[3 * iidx])) /
-                sin_angle;
-            vector[1] = (pose[1 + vector_tmp] + static_cast<T>(b_I[1 + 3 * iidx]))
-                / sin_angle;
-            vector[2] = (pose[2 + vector_tmp] + static_cast<T>(b_I[2 + 3 * iidx]))
-                / sin_angle;
-            angle = 3.1415926535897931;
-        }
-        else {
-            sin_angle = 1.0 / (2.0 * sin_angle);
-            vector[0] = (pose[6] - pose[9]) * sin_angle;
-            vector[1] = (pose[8] - pose[2]) * sin_angle;
-            vector[2] = (pose[1] - pose[4]) * sin_angle;
+        // near 180 deg: (R + R^T)/2 - c*I = (1 - c) * axis * axis^T,
+        // so take its largest column as the axis direction
+        const double S[3][3] = {
+            { r00 - c,             0.5 * (r01 + r10), 0.5 * (r02 + r20) },
+            { 0.5 * (r01 + r10),   r11 - c,           0.5 * (r12 + r21) },
+            { 0.5 * (r02 + r20),   0.5 * (r12 + r21), r22 - c } };
+        int k = 0;
+        if (S[1][1] > S[k][k]) k = 1;
+        if (S[2][2] > S[k][k]) k = 2;
+        double col[3] = { S[0][k], S[1][k], S[2][k] };
+        double n = std::sqrt(col[0] * col[0] + col[1] * col[1] + col[2] * col[2]);
+        axis[0] = col[0] / n; axis[1] = col[1] / n; axis[2] = col[2] / n;
+        // pick the sign that agrees with the skew part (irrelevant at exactly 180)
+        if (axis[0] * v[0] + axis[1] * v[1] + axis[2] * v[2] < 0.0) {
+            axis[0] = -axis[0]; axis[1] = -axis[1]; axis[2] = -axis[2];
         }
     }
 
-    sin_angle = angle * 180.0 / 3.1415926535897931;
-    out[3] = vector[0] * sin_angle * 3.1415926535897931 / 180.0;
-    out[4] = vector[1] * sin_angle * 3.1415926535897931 / 180.0;
-    out[5] = vector[2] * sin_angle * 3.1415926535897931 / 180.0;
+    out[3] = static_cast<T>(axis[0] * angle);
+    out[4] = static_cast<T>(axis[1] * angle);
+    out[5] = static_cast<T>(axis[2] * angle);
 }
 
 
@@ -941,16 +1039,15 @@ void inverse_kinematics_raw(const T pose[16], const tRobot DK, const T joints_ap
                 }
             }
 
-            make_sqrt = 1.0 - base[9] * base[9];
-            if (make_sqrt <= 0.0) {
-                make_sqrt = 0.0;
-            }
-            else {
-                make_sqrt = std::sqrt(make_sqrt);
-            }
+            // |sin(J5)| from the two off-axis terms. The old (1 - cos^2) form loses every
+            // digit in float near J5 = 0, so J4/J6 came out as noise there (the wrist
+            // "teleported") and the exact rest pose (J5 = 0) found no solution at all.
+            make_sqrt = std::sqrt(base[8] * base[8] + base[10] * base[10]);
 
-            if (make_sqrt < 1.0E-6) {
-                C = atan2(make_sqrt, base[9]);
+            if (make_sqrt < IK_SING_SIN_EPS) {
+                // Wrist singularity: the J4 and J6 axes line up and only J4 + J6 is
+                // defined. Keep J4 at the estimate (current joint) and give J6 the rest.
+                C = (base[9] >= 0.0) ? 0.0 : 3.1415926535897931;
                 make_sqrt = std::sin(bb_div_cc);
                 ai = std::cos(bb_div_cc);
                 make_sqrt = atan2(make_sqrt * base[0] + ai * base[2], make_sqrt * base[2]

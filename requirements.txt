@@ -6,13 +6,7 @@ opencv-python
 opencv-contrib-python
 inputs
 ttkbootstrap
+cadquery
 
 # Only install on Windows
 pywin32; sys_platform == "win32"
-
-# Only install on Linux
-pybind11; sys_platform == "linux"
-
-# Only install on MacOS
-pybind11; sys_platform == "darwin"
-

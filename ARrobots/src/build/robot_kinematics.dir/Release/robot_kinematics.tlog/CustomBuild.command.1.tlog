@@ -1,0 +1,10 @@
+^C:\USERS\CHRIS\ONEDRIVE\DOCUMENTS\GITHUB\AR4-HMI-DEV\ARROBOTS\SRC\CMAKELISTS.TXT
+setlocal
+"C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe" -SC:/Users/chris/OneDrive/Documents/GitHub/ar4-hmi-dev/ARrobots/src -BC:/Users/chris/OneDrive/Documents/GitHub/ar4-hmi-dev/ARrobots/src/build --check-stamp-file C:/Users/chris/OneDrive/Documents/GitHub/ar4-hmi-dev/ARrobots/src/build/CMakeFiles/generate.stamp
+if %errorlevel% neq 0 goto :cmEnd
+:cmEnd
+endlocal & call :cmErrorLevel %errorlevel% & goto :cmDone
+:cmErrorLevel
+exit /b %1
+:cmDone
+if %errorlevel% neq 0 goto :VCEnd

@@ -1,0 +1,29 @@
+## RUN ONCE ##
+Cam On
+Move J [*] X 262.411 Y -15.294 Z 255.480 Rz -0.258 Ry -175.048 Rx -0.038 J7 0.00 J8 0.00 J9 0.00 Sp 25 Ac 15 Dc 15 Rm 80 $ F
+Servo number 0 to position: 45
+
+## START PROGRAM LOOP ##
+Vis Find - block.jpg - BGcolor (Auto) Score 65 Pass 1 Fail 2
+
+
+## pass
+Tab Number 1
+
+Position Register 1 Element 3 = 40
+Move Vis [ PR: 1 ] [*] X 428.482 Y -13.024 Z 71.991 Rz -0.561 Ry -174.875 Rx -0.075 J7 0.00 J8 0.00 J9 0.00 Sp 25 Ac 15 Dc 15 Rm 80 $ F
+Position Register 1 Element 3 = 0
+Move Vis [ PR: 1 ] [*] X 428.482 Y -13.024 Z 71.991 Rz -0.561 Ry -174.875 Rx -0.075 J7 0.00 J8 0.00 J9 0.00 Sp 10 Ac 15 Dc 15 Rm 80 $ F
+Servo number 0 to position: 0
+Wait Time = .5
+Position Register 1 Element 3 = 60
+Move Vis [ PR: 1 ] [*] X 428.482 Y -13.024 Z 71.991 Rz -0.561 Ry -174.875 Rx -0.075 J7 0.00 J8 0.00 J9 0.00 Sp 25 Ac 15 Dc 15 Rm 80 $ F
+
+
+
+Move J [*] X 392.517 Y 179.480 Z 170.534 Rz 39.464 Ry -170.459 Rx 1.716 J7 0.00 J8 0.00 J9 0.00 Sp 25 Ac 15 Dc 15 Rm 80 $ F
+Servo number 0 to position: 45
+Wait Time = .5
+
+## fail
+Tab Number 2
