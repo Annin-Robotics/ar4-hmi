@@ -941,32 +941,10 @@ def run_driveMotorsJ_safe(*args):
         driveMotorsJ(*args)    
 
 
-def driveMotorsJ(
-    J1step, J2step, J3step, J4step, J5step, J6step,
-    J1dir, J2dir, J3dir, J4dir, J5dir, J6dir,
-    SpeedType, SpeedVal, ACCspd, DCCspd, ACCramp):
-
-    limits = kinematics.get_joint_limits()
-
-    steps = [int(round(J1step)), int(round(J2step)), int(round(J3step)),
-             int(round(J4step)), int(round(J5step)), int(round(J6step))]
-    dirs = [J1dir, J2dir, J3dir, J4dir, J5dir, J6dir]
-    RUN['StepMonitors'] = [RUN['J1StepM'], RUN['J2StepM'], RUN['J3StepM'], RUN['J4StepM'], RUN['J5StepM'], RUN['J6StepM']]
-    prev_StepMonitors = RUN['StepMonitors'].copy()
-
-    cur = [0] * 6
-    PE = [0] * 6
-    SE_1 = [0] * 6
-    SE_2 = [0] * 6
-    LO_1 = [0] * 6
-    LO_2 = [0] * 6
-    PEcur = [0] * 6
-    SE_1cur = [0] * 6
-    SE_2cur = [0] * 6
-
-    HighStep = max(steps)
-    time.sleep(15e-6)
-
+def _virtual_step_timing(HighStep, SpeedType, SpeedVal, ACCspd, DCCspd, ACCramp, lineDist=None):
+    """Step timing of a simulated move of HighStep steps (driveMotorsJ and the virtual Move L).
+    Returns (ACCStep, DCCStep, calcStepGap, k_acc, k_dec): steps in the accel/decel ramps,
+    the cruise delay per step in microseconds, and how much slower than cruise each ramp starts/ends."""
     virtual_speed_scale = .4
 
     if SpeedType == "p":
@@ -993,11 +971,7 @@ def driveMotorsJ(
     speedSP = SpeedVal
     if SpeedType == "s":
         speedSP = SpeedVal * 1000000 
-    elif SpeedType == "m" and RUN['xyzuvw_In'] and RUN['xyzuvw_Out']:
-        dx = RUN['xyzuvw_In'][0] - RUN['xyzuvw_Out'][0]
-        dy = RUN['xyzuvw_In'][1] - RUN['xyzuvw_Out'][1]
-        dz = RUN['xyzuvw_In'][2] - RUN['xyzuvw_Out'][2]
-        lineDist = math.sqrt(dx*dx + dy*dy + dz*dz)
+    elif SpeedType == "m" and lineDist is not None:
         # seconds = distance / (mm/s)
         speedSP = (lineDist / SpeedVal) * 1000000
 
@@ -1019,16 +993,46 @@ def driveMotorsJ(
 
         if calcStepGap < RUN['minSpeedDelay']:
             calcStepGap = RUN['minSpeedDelay']
-            try:
-                RUN['speedViolation'] = "1"
-            except NameError:
-                pass  # only if your Python sim doesn't use this flag
+            RUN['speedViolation'] = "1"
     elif SpeedType == "p":
         calcStepGap = RUN['minSpeedDelay'] / (SpeedVal / 100.0)
     else:
         calcStepGap = RUN['minSpeedDelay']
 
-    calcStepGap = calcStepGap * virtual_speed_scale    
+    return ACCStep, DCCStep, calcStepGap * virtual_speed_scale, k_acc, k_dec
+
+
+def driveMotorsJ(
+    J1step, J2step, J3step, J4step, J5step, J6step,
+    J1dir, J2dir, J3dir, J4dir, J5dir, J6dir,
+    SpeedType, SpeedVal, ACCspd, DCCspd, ACCramp):
+
+    limits = kinematics.get_joint_limits()
+
+    steps = [int(round(J1step)), int(round(J2step)), int(round(J3step)),
+             int(round(J4step)), int(round(J5step)), int(round(J6step))]
+    dirs = [J1dir, J2dir, J3dir, J4dir, J5dir, J6dir]
+    RUN['StepMonitors'] = [RUN['J1StepM'], RUN['J2StepM'], RUN['J3StepM'], RUN['J4StepM'], RUN['J5StepM'], RUN['J6StepM']]
+    prev_StepMonitors = RUN['StepMonitors'].copy()
+
+    cur = [0] * 6
+    PE = [0] * 6
+    SE_1 = [0] * 6
+    SE_2 = [0] * 6
+    LO_1 = [0] * 6
+    LO_2 = [0] * 6
+    PEcur = [0] * 6
+    SE_1cur = [0] * 6
+    SE_2cur = [0] * 6
+
+    HighStep = max(steps)
+    time.sleep(15e-6)
+
+    lineDist = None
+    if SpeedType == "m" and RUN['xyzuvw_In'] is not None and RUN['xyzuvw_Out'] is not None:
+        lineDist = math.dist(RUN['xyzuvw_In'][:3], RUN['xyzuvw_Out'][:3])
+    ACCStep, DCCStep, calcStepGap, k_acc, k_dec = _virtual_step_timing(
+        HighStep, SpeedType, SpeedVal, ACCspd, DCCspd, ACCramp, lineDist)
 
     # With cruise known, define start/end delays and per-step increments
     startDelay = calcStepGap * k_acc  # slower than cruise
@@ -1308,7 +1312,7 @@ def mj_command(inData):
     ACCspd = result["Acc"]
     DCCspd = result["Dec"]
     ACCramp = result["Ramp"]
-    SpeedType = inData[inData.find("S") + 1]
+    SpeedType = result["SpeedType"]
 
     RUN['xyzuvw_In'] = np.array(RUN['xyzuvw_In'], dtype=float)
 
@@ -1366,6 +1370,113 @@ def mj_command(inData):
           logger.error(RUN['Alarm'])
 
 
+
+
+# Virtual Move L: the firmware moves the TCP along a straight line (orientation rotated along
+# the shortest path, see oriInterpInit in the Teensy sketch) and solves IK every ~1 mm.
+# mj_command only solves the end point and interpolates the joints, which bends the path,
+# so the virtual robot does the same waypoint walk as the firmware.
+VIRTUAL_LINEAR_WAYPOINT_MM = 1.0      # firmware linWayDistSP
+VIRTUAL_FRAME_S = 1.0 / 60.0
+
+
+def ml_command(inData):
+
+    logger.info(inData)
+
+    result = parse_mj_command(inData)
+    if not result:
+        if RUN['offlineMode']:
+          ErrorHandler("ER")
+        return
+
+    start_angles = [float(a) for a in RUN['VR_angles']]
+    fk = kinematics.forward_kinematics(start_angles)
+    start_xyz = np.array(fk[:3], dtype=float)
+    end_xyz = np.array(result["xyzuvw"][:3], dtype=float)
+    start_rv = np.array([math.degrees(v) for v in fk[3:6]])
+    Rs = ar4_to_R(*start_rv)
+    Re = ar4_to_R(*result["xyzuvw"][3:6])
+    # relative rotation start -> end as a rotation vector (<= 180 deg)
+    w = np.array(R_to_ar4(Rs.T @ Re, ref=np.zeros(3)), dtype=float)
+    ori_angle = float(np.linalg.norm(w))
+
+    RUN['xyzuvw_Out'] = np.concatenate([start_xyz, start_rv])
+    RUN['xyzuvw_In'] = np.array(result["xyzuvw"], dtype=float)
+
+    line_dist = math.sqrt(float(np.sum((end_xyz - start_xyz) ** 2)) + ori_angle ** 2)
+    way_pts = max(1, int(math.ceil(line_dist / VIRTUAL_LINEAR_WAYPOINT_MM)))
+
+    path = [start_angles]
+    seed = start_angles
+    for i in range(1, way_pts + 1):
+        t = i / way_pts
+        xyz = start_xyz + (end_xyz - start_xyz) * t
+        R = Rs @ ar4_to_R(*(w * t))
+        pose = list(xyz) + list(R_to_ar4(R, ref=start_rv))
+        if i == way_pts:
+            pose = list(result["xyzuvw"])        # land exactly on the programmed pose
+        sol = kinematics.SolveInverseKinematics(pose, seed, LIVE_JOG_MAX_JOINT_JUMP_DEG)
+        if sol is None or len(sol) == 0:
+            if RUN['offlineMode']:
+              logger.error(f"Move L: no IK solution {100 * t:.0f}% along the line.")
+              ErrorHandler("ER")
+            return
+        seed = [float(a) for a in sol]
+        path.append(seed)
+    path = np.array(path, dtype=float)
+
+    # Joint limits along the whole path, reported the same way as mj_command
+    lims_hi = [float(CAL[f'J{j}PosLim']) for j in range(1, 7)]
+    lims_lo = [-float(CAL[f'J{j}NegLim']) for j in range(1, 7)]
+    faults = [int(bool(np.any(path[:, j] > lims_hi[j]) or np.any(path[:, j] < lims_lo[j]))) for j in range(6)]
+    if sum(faults):
+        if RUN['offlineMode']:
+          RUN['Alarm'] = "EL" + ''.join(str(f) for f in faults)
+          ErrorHandler(RUN['Alarm'])
+          logger.error(RUN['Alarm'])
+        return
+
+    # Timing: same step profile as driveMotorsJ, sized by the end-point joint travel like the firmware
+    step_degs = np.array([float(CAL[f'J{j}StepDeg']) for j in range(1, 7)])
+    high_step = max(1.0, float(np.max(np.abs(path[-1] - path[0]) * step_degs)))
+    ACCStep, DCCStep, gap, k_acc, k_dec = _virtual_step_timing(
+        high_step, result["SpeedType"], result["Speed"], result["Acc"], result["Dec"], result["Ramp"],
+        float(np.linalg.norm(end_xyz - start_xyz)))
+    h = np.arange(1, way_pts + 1) / way_pts * high_step          # step reached at each waypoint
+    delay = np.full(way_pts, gap)
+    if ACCStep > 0:
+        acc = h <= ACCStep
+        delay[acc] = gap * k_acc - (gap * k_acc - gap) * h[acc] / ACCStep
+    if DCCStep > 0:
+        dcc = h >= high_step - DCCStep
+        delay[dcc] = gap + (gap * k_dec - gap) * (h[dcc] - (high_step - DCCStep)) / DCCStep
+    arrive = np.concatenate([[0.0], np.cumsum(delay * high_step / way_pts) / 1_000_000])   # seconds
+
+    def _play():
+        with drive_lock:
+            t0 = time.monotonic()
+            total = arrive[-1]
+            while True:
+                el = time.monotonic() - t0
+                if el >= total:
+                    break
+                k = min(int(np.searchsorted(arrive, el, side="right")) - 1, way_pts - 1)
+                f = (el - arrive[k]) / max(arrive[k + 1] - arrive[k], 1e-9)
+                RUN['VR_angles'] = list(path[k] + (path[k + 1] - path[k]) * f)
+                setStepMonitorsVR()
+                time.sleep(VIRTUAL_FRAME_S)
+            RUN['VR_angles'] = list(path[-1])
+            setStepMonitorsVR()
+            if RUN['offlineMode'] and not RUN['liveJog']:
+                refresh_gui_from_joint_angles(RUN['VR_angles'])
+            if RUN['offlineMode']:
+                _set_status_ready()
+
+    if drive_lock.locked():
+        logger.info("Drive already in progress — ignoring new command.")
+        return
+    threading.Thread(target=_play, daemon=True).start()
 
 
 def mt_command(inData):
@@ -2115,15 +2226,33 @@ RUN['joint_transforms'] = {}
 RUN['composite_transforms'] = {}
 
 
+def robot_connected():
+    try:
+        return RUN.get('robot') is not None and RUN['robot'].is_connected()
+    except Exception:
+        return False
+
+
 def toggle_offline_mode():
-    #global offlineMode
-    # global RUN['VR_angles']
-    RUN['offlineMode'] = not RUN['offlineMode']
+    set_offline_mode(not RUN['offlineMode'])
+
+
+def set_offline_mode(offline, reset_pose=True):
+    """Switch offline (virtual robot only) / online. Online needs a connected robot, so with
+    nothing connected the program stays offline until a Teensy COM port is picked."""
+    if not offline and not robot_connected():
+        almStatusLab.config(text="NO ROBOT CONNECTED - SELECT THE TEENSY COM PORT TO GO ONLINE", style="Alarm.TLabel")
+        almStatusLab2.config(text="NO ROBOT CONNECTED - SELECT THE TEENSY COM PORT TO GO ONLINE", style="Alarm.TLabel")
+        return
+    if offline == RUN['offlineMode']:
+        return
+    RUN['offlineMode'] = offline
     if RUN['offlineMode']:
         offline_button.config(text="Go Online", style="Offline.TButton")
         almStatusLab.config(text="SYSTEM IN OFFLINE MODE", style="Warn.TLabel")
         almStatusLab2.config(text="SYSTEM IN OFFLINE MODE", style="Warn.TLabel")
-        RUN['VR_angles'] = [0.000, 0.000, 0.000, 0.000, 90.000, 0.000]
+        if reset_pose:
+            RUN['VR_angles'] = [0.000, 0.000, 0.000, 0.000, 90.000, 0.000]
         J1negLimLab.config(text="-"+CAL['J1NegLim'], style="Jointlim.TLabel")
         J1posLimLab.config(text=CAL['J1PosLim'], style="Jointlim.TLabel")
         J1jogslide.config(from_=float("-"+CAL['J1NegLim']), to=float(CAL['J1PosLim']),  length=180, orient=HORIZONTAL,  command=J1sliderUpdate)
@@ -2848,7 +2977,7 @@ def refresh_node_list():
 
     nodes = RUN['vr_nodes']
     panel['header'].SetInput(f" Nodes: {len(nodes)}   click=add  ctrl+click=select  "
-                             f"shift=snap  t=to tool  z=undo  esc=deselect ")
+                             f"shift=snap  alt=world axes  t=to tool  z=undo  esc=deselect ")
     tgt = _teach_target_index()
     num = f" #{tgt + 1}" if tgt is not None else ""
     panel['teach_mj'].SetInput(f" [ Teach MJ{num} ] ")
@@ -3050,7 +3179,9 @@ def _gizmo_create(overlay):
 
 def _gizmo_frame(t):
     W = t['get']()
-    R = _orthonormal(W[:3, :3])
+    g = RUN.get('gizmo')
+    # Alt held: world axes (Cartesian moves/rotations) instead of the target's own axes
+    R = np.eye(3) if g and g.get('world') else _orthonormal(W[:3, :3])
     c = (W @ np.append(t['pivot'], 1.0))[:3]
     return R, c
 
@@ -3089,11 +3220,24 @@ def gizmo_sync():
     g['frame'] = (R, c)
 
 
-def gizmo_try_begin_drag(x, y):
+def gizmo_set_world(on):
+    """Align the triad with the world axes (Alt held) or with its target. VTK-only."""
+    g = RUN.get('gizmo')
+    if not g or g['drag'] or bool(g.get('world')) == on:   # a drag keeps the axes it started with
+        return
+    g['world'] = on
+    if g['target']:
+        gizmo_sync()
+        if RUN.get('render_window') is not None:
+            RUN['render_window'].Render()
+
+
+def gizmo_try_begin_drag(x, y, world=False):
     """Called from the VTK press callback (VTK/numpy only). True if a triad handle was grabbed."""
     g = RUN.get('gizmo')
     if not g or not g['target'] or RUN.get('node_renderer') is None:
         return False
+    g['world'] = world
     gizmo_sync()
     if g['frame'] is None or not g['picker'].Pick(x, y, 0, RUN['node_renderer']):
         return False
@@ -3311,7 +3455,7 @@ def select3d(x, y):
         for name, act in RUN['actors'].items():
             if act == prop and name not in GIZMO_TOOL_NAMES:
                 _select_other(_target_for_robot(),
-                              "Robot selected - drag the triad to move the TCP (shift = snap, Esc = done)")
+                              "Robot selected - drag the triad to move the TCP (shift = snap, alt = world axes, Esc = done)")
                 return
     deselect_all()
 
@@ -3805,6 +3949,7 @@ class CustomInteractorStyle(vtk.vtkInteractorStyleTrackballCamera):
         self.AddObserver("LeftButtonReleaseEvent", self.on_left_button_up)
         self.AddObserver("MouseMoveEvent", self.on_mouse_move)
         self.AddObserver("KeyPressEvent", self.on_key_press)
+        self.AddObserver("KeyReleaseEvent", self.on_key_release)
         self.AddObserver("CharEvent", self.on_char)
 
     def on_char(self, obj, event):
@@ -3821,7 +3966,7 @@ class CustomInteractorStyle(vtk.vtkInteractorStyleTrackballCamera):
     def on_left_button_down(self, obj, event):
         iren = self.GetInteractor()
         x, y = iren.GetEventPosition()
-        if gizmo_try_begin_drag(x, y):
+        if gizmo_try_begin_drag(x, y, world=bool(iren.GetAltKey())):
             self._dragging_gizmo = True
             self._press_pos = None
             return                                  # don't rotate the camera
@@ -3841,6 +3986,7 @@ class CustomInteractorStyle(vtk.vtkInteractorStyleTrackballCamera):
         if self._dragging_gizmo:
             self._dragging_gizmo = False
             gizmo_end_drag()
+            gizmo_set_world(bool(self.GetInteractor().GetAltKey()))   # Alt may have changed mid-drag
             return
         self.OnLeftButtonUp()
         if self._press_pos is None:
@@ -3851,8 +3997,15 @@ class CustomInteractorStyle(vtk.vtkInteractorStyleTrackballCamera):
         if abs(x - x0) <= self.CLICK_TOL_PX and abs(y - y0) <= self.CLICK_TOL_PX:
             _vr_queue().put(('select3d' if self._ctrl else 'pick', x, y))
 
+    def on_key_release(self, obj, event):
+        if (self.GetInteractor().GetKeySym() or "").lower() in ("alt_l", "alt_r"):
+            gizmo_set_world(False)
+
     def on_key_press(self, obj, event):
         key = (self.GetInteractor().GetKeySym() or "").lower()
+        if key in ("alt_l", "alt_r"):
+            gizmo_set_world(True)
+            return
         if RUN.get('vr_rnd_edit') is not None:
             _vr_queue().put(('rnd_key', key))      # typing into the rounding field
             return
@@ -5009,7 +5162,15 @@ def startup():
 def sendHelloToTeensy(checkMismatch=True):
   """Send hello command to Teensy, log response, check for model mismatch or unconfigured board."""
   try:
-    response = RUN['robot'].command({"cmd": "hello"})
+    # The port blocks forever by default; a device that never answers (wrong port picked)
+    # must not hang the program, so hello gets a deadline.
+    ser = RUN['robot'].serial_connection
+    old_timeout = ser.timeout
+    ser.timeout = 0.3
+    try:
+      response = RUN['robot'].command({"cmd": "hello"}, timeout=3)
+    finally:
+      ser.timeout = old_timeout
 
     # The Teensy may emit boot/debug lines before the JSON hello (e.g. right
     # after a reboot). Skip non-JSON lines and keep reading until we find the
@@ -5120,6 +5281,11 @@ def setCom(misc=None):
 
     startup_with_spinner(root)
 
+    if RUN['offlineMode']:
+      # connected after starting offline: going online is the user's call
+      almStatusLab.config(text="ROBOT CONNECTED - PRESS GO ONLINE TO USE IT", style="Warn.TLabel")
+      almStatusLab2.config(text="ROBOT CONNECTED - PRESS GO ONLINE TO USE IT", style="Warn.TLabel")
+
     value = tab8.ElogView.get(0, END)
     pickle.dump(value, open("ErrorLog", "wb"))
 
@@ -5136,15 +5302,15 @@ def setCom(misc=None):
       "UNABLE TO ESTABLISH COMMUNICATIONS WITH TEENSY 4.1 CONTROLLER"
     )
 
-    almStatusLab.config(
-      text="UNABLE TO ESTABLISH COMMUNICATIONS WITH TEENSY 4.1 CONTROLLER",
-      style="Alarm.TLabel"
-    )
+    # No robot: run on the virtual robot until one is connected
+    set_offline_mode(True)
 
-    almStatusLab2.config(
-      text="UNABLE TO ESTABLISH COMMUNICATIONS WITH TEENSY 4.1 CONTROLLER",
-      style="Alarm.TLabel"
-    )
+    if CAL['comPort'] in (None, "", "None"):
+      alarm = "NO ROBOT CONNECTED - OFFLINE MODE (SELECT THE TEENSY COM PORT TO CONNECT)"
+    else:
+      alarm = "UNABLE TO ESTABLISH COMMUNICATIONS WITH TEENSY 4.1 CONTROLLER - OFFLINE MODE"
+    almStatusLab.config(text=alarm, style="Alarm.TLabel")
+    almStatusLab2.config(text=alarm, style="Alarm.TLabel")
 
     try:
       value = tab8.ElogView.get(0, END)
@@ -6941,7 +7107,7 @@ def executeRow():
         cmdSentEntryField.delete(0, 'end')
         cmdSentEntryField.insert(0, command)
         start_send_serial_thread(command)
-      mj_command(command)
+      ml_command(command)
       wait_until_all_locks_free(min_hold_time=0.05) 
 
 
@@ -13190,6 +13356,7 @@ def reconnectAfterTeensyReboot(timeout=15):
       time.sleep(0.5)
 
   logger.error("Failed to reconnect to Teensy after model-change reboot")
+  set_offline_mode(True, reset_pose=False)
   almStatusLab.config(text="TEENSY REBOOTED - RECONNECT FAILED - CHECK COM PORT", style="Alarm.TLabel")
   almStatusLab2.config(text="TEENSY REBOOTED - RECONNECT FAILED - CHECK COM PORT", style="Alarm.TLabel")
   messagebox.showwarning("Reconnect Failed",
@@ -13585,6 +13752,7 @@ def ErrorHandler(response):
     elif code == "N":
       if RUN['progRunning'] or RUN['streamActive']:
         stopProg()
+      root.after(0, lambda: set_offline_mode(True, reset_pose=False))
       message = "Robot not connected - select the COM port or use offline mode"
       messages.append(message)
       alarm_message = message
@@ -16705,6 +16873,19 @@ ComPortLab2.grid(row=2, column=0, sticky="w", padx=5, pady=(15, 2))
 com2SelectedValue = tk.StringVar(value=default_comport2 or "None")
 com2Select = tk.OptionMenu(commFrame, com2SelectedValue, *port_choices, command=setCom2)
 com2Select.grid(row=3, column=0, sticky="ew", padx=5, pady=2)
+
+
+def _refresh_port_menu(menu, var, callback):
+  """Rescan the serial ports every time a COM menu opens, so a robot or IO board plugged in
+  after the program started can be picked without restarting."""
+  choices, _, _ = detect_ports()
+  menu.delete(0, "end")
+  for choice in choices:
+    menu.add_command(label=choice, command=tk._setit(var, choice, callback))
+
+
+com1Select["menu"].configure(postcommand=lambda: _refresh_port_menu(com1Select["menu"], com1SelectedValue, setCom))
+com2Select["menu"].configure(postcommand=lambda: _refresh_port_menu(com2Select["menu"], com2SelectedValue, setCom2))
 
 # ============================================================================
 # ROW 1, COLUMN 1: Robot Calibration Frame
